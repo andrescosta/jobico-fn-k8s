@@ -1,0 +1,12 @@
+apiVersion: jobico.coeux.dev/v1
+kind: Listener
+metadata:
+  labels:
+    app.kubernetes.io/name: project
+    app.kubernetes.io/managed-by: kustomize
+  name: listener-for-ev1
+spec:
+  events:
+    - name: ev1
+      configmap:
+        key: map1

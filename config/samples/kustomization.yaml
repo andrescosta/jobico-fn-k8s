@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- jobico_v1_listener.yaml
+#+kubebuilder:scaffold:manifestskustomizesamples

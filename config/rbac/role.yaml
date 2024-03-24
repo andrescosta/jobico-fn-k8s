@@ -1,0 +1,32 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - jobico.coeux.dev
+  resources:
+  - listeners
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - jobico.coeux.dev
+  resources:
+  - listeners/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - jobico.coeux.dev
+  resources:
+  - listeners/status
+  verbs:
+  - get
+  - patch
+  - update
