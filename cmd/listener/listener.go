@@ -9,12 +9,16 @@ import (
 	"os"
 	"os/signal"
 
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/santhosh-tekuri/jsonschema/v5"
 	"k8s.io/utils/env"
 )
 
 type apiHandler struct {
+	Event  string
 	Schema *jsonschema.Schema
+	Js     jetstream.JetStream
 }
 
 type MerchantData struct {
@@ -23,6 +27,7 @@ type MerchantData struct {
 
 func (a *apiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	event := MerchantData{}
+	fmt.Printf("serving event %s ...\n", a.Event)
 	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
 		http.Error(w, "Request body illegal", http.StatusBadRequest)
 		return
@@ -32,8 +37,23 @@ func (a *apiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			fmt.Printf("%v", err)
 			http.Error(w, "Request body illegal", http.StatusBadRequest)
 		}
+		buff := make([]byte, 0)
+		s := bytes.NewBuffer(buff)
+		if err := json.NewEncoder(s).Encode(&event.Data); err != nil {
+			http.Error(w, "Request body illegal", http.StatusBadRequest)
+			return
+		}
+		_, err := a.Js.Publish(context.Background(), a.Event, s.Bytes())
+		if err != nil {
+			fmt.Printf("%v\n", err)
+			http.Error(w, "Error", http.StatusInternalServerError)
+		} else {
+			fmt.Println("client ok")
+			fmt.Fprintf(w, "OKKK!")
+			w.WriteHeader(http.StatusOK)
+		}
+		fmt.Println("finished serving event ...")
 	}
-	fmt.Fprintf(w, "OKKK")
 }
 
 func main() {
@@ -41,7 +61,33 @@ func main() {
 	if event == "" {
 		event = "def"
 	}
-	res := fmt.Sprintf("/%s/", event)
+	fmt.Printf("started with event: %s\n", event)
+	// Nats
+	url := env.GetString("NATS_URL", "nats://queue:4222")
+	fmt.Printf("Connecting Nats with %s\n", url)
+	nc, err := nats.Connect(url)
+	if err != nil {
+		panic(err)
+	}
+	defer nc.Drain()
+	js, err := jetstream.New(nc)
+	if err != nil {
+		panic(err)
+	}
+	cfg := jetstream.StreamConfig{
+		Name:      "EVENTS-" + event,
+		Retention: jetstream.WorkQueuePolicy,
+		Subjects:  []string{event},
+	}
+
+	// JetStream API uses context for timeouts and cancellation.
+	_, err = js.CreateOrUpdateStream(context.Background(), cfg)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("created the stream")
+	//
+	res := fmt.Sprintf("/%s", event)
 	mux := http.NewServeMux()
 
 	comp := jsonschema.NewCompiler()
@@ -60,6 +106,8 @@ func main() {
 	}
 	h := apiHandler{
 		Schema: compiledSchema,
+		Js:     js,
+		Event:  event,
 	}
 	mux.Handle(res, &h)
 	mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {

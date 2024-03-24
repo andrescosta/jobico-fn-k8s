@@ -111,6 +111,10 @@ func (r *ListenerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 										Name:  "event",
 										Value: e.Name,
 									},
+									{
+										Name:  "NATS_URL",
+										Value: "nats://queue:4222",
+									},
 								},
 								VolumeMounts: []core.VolumeMount{
 									{

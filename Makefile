@@ -216,9 +216,15 @@ ingress:
 wait-ingress:
 	@kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=90s
 
-.PHONY: load-image compile-image
-compile-image: 
+.PHONY: load-image compile-image listener
+
+listener: compile-image-listener load-image
+
+compile-image-listener: 
 	 docker build -t listener:v1 -f ./k8s/docker/dockerfile.listener .
 
 load-image: compile-image
 	kind load docker-image listener:v1 -n jobico
+
+nats:
+	kubectl apply -f ./config/nats/cluster.yaml

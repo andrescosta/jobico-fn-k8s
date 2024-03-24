@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: queue
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: queue
+  template:
+    metadata:
+      labels:
+        app: queue
+    spec:
+      containers:
+      - name: queue
+        image: docker.io/nats:latest
+#        imagePullPolicy: Never
+        args: ["--debug", "--http_port=8222", "--js"]
+        ports:
+          - name: "p8222"
+            containerPort: 8222
+            hostPort: 8222
+            protocol: TCP
+          - name: "p6222"
+            containerPort: 6222
+            hostPort: 6222
+            protocol: TCP
+          - name: "p4222"
+            containerPort: 4222
+            hostPort: 4222
+            protocol: TCP
+        volumeMounts:
+          - name: queue-data
+            mountPath: /usr/share/jobico/queue
+  volumeClaimTemplates:
+    - metadata:
+        name: queue-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: queue
+spec:
+  selector:
+    app: queue
+  ports:
+    - name: "8222"
+      port: 8222
+      protocol: TCP
+    - name: "6222"
+      port: 6222
+      protocol: TCP
+    - name: "4222"
+      port: 4222
+      protocol: TCP
+  type: ClusterIP
+
+---
