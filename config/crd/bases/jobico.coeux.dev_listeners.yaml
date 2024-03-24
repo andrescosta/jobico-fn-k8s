@@ -62,7 +62,13 @@ spec:
                       - key
                       type: object
                       x-kubernetes-map-type: atomic
+                    dir:
+                      type: string
+                    exec:
+                      type: string
                     name:
+                      type: string
+                    wasm:
                       type: string
                   required:
                   - configmap

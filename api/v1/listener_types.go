@@ -31,6 +31,9 @@ type ListenerSpec struct {
 
 type Event struct {
 	Name      string                      `json:"name"`
+	Executor  string                      `json:"exec,omitempty"`
+	Wasm      string                      `json:"wasm,omitempty"`
+	Dir       string                      `json:"dir,omitempty"`
 	ConfigMap corev1.ConfigMapKeySelector `json:"configmap"`
 }
 

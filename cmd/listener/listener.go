@@ -50,7 +50,6 @@ func (a *apiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else {
 			fmt.Println("client ok")
 			fmt.Fprintf(w, "OKKK!")
-			w.WriteHeader(http.StatusOK)
 		}
 		fmt.Println("finished serving event ...")
 	}
@@ -61,7 +60,11 @@ func main() {
 	if event == "" {
 		event = "def"
 	}
-	fmt.Printf("started with event: %s\n", event)
+	schema := env.GetString("schema", "")
+	if schema == "" {
+		panic("no schema")
+	}
+	fmt.Printf("started with event %s and schema %s\n", event, schema)
 	// Nats
 	url := env.GetString("NATS_URL", "nats://queue:4222")
 	fmt.Printf("Connecting Nats with %s\n", url)
@@ -87,11 +90,12 @@ func main() {
 	}
 	fmt.Println("created the stream")
 	//
-	res := fmt.Sprintf("/%s", event)
+	res := fmt.Sprintf("/listener/%s", event)
+	fmt.Printf("listening on %s\n", res)
 	mux := http.NewServeMux()
 
 	comp := jsonschema.NewCompiler()
-	file := "/etc/listener/schema-" + event + ".json"
+	file := "/etc/listener/" + schema
 	fmt.Printf("reading file: %s\n", file)
 	bs, err := os.ReadFile(file)
 	if err != nil {

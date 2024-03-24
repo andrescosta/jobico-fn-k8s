@@ -4,10 +4,10 @@ metadata:
   labels:
     app.kubernetes.io/name: project
     app.kubernetes.io/managed-by: kustomize
-  name: listener-for-ev1
+  name: listener-for-ev2
 spec:
   events:
-    - name: ev1
+    - name: ev2
       exec: exec:v1
       dir: /mnt/exec
       wasm: echo.wasm

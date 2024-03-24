@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	apps "k8s.io/api/apps/v1"
+	batch "k8s.io/api/batch/v1"
 	core "k8s.io/api/core/v1"
 	net "k8s.io/api/networking/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -67,19 +68,19 @@ func (r *ListenerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		class := "nginx"
 		dm := int32(420)
 		pt := net.PathType("Prefix")
-		d := apps.Deployment{
+		deployment := apps.Deployment{
 			ObjectMeta: v1.ObjectMeta{
-				Name:      "listener",
+				Name:      "listener-" + e.Name,
 				Namespace: "default",
 			},
 			Spec: apps.DeploymentSpec{
 				Replicas: &repls,
 				Selector: &v1.LabelSelector{
-					MatchLabels: map[string]string{"app": "listener"},
+					MatchLabels: map[string]string{"app": "listener", "event": e.Name},
 				},
 				Template: core.PodTemplateSpec{
 					ObjectMeta: v1.ObjectMeta{
-						Labels: map[string]string{"app": "listener"},
+						Labels: map[string]string{"app": "listener", "event": e.Name},
 					},
 					Spec: core.PodSpec{
 						RestartPolicy: core.RestartPolicyAlways,
@@ -90,7 +91,7 @@ func (r *ListenerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 									ConfigMap: &core.ConfigMapVolumeSource{
 										DefaultMode: &dm,
 										LocalObjectReference: core.LocalObjectReference{
-											Name: "schema-" + e.Name,
+											Name: e.ConfigMap.Key,
 										},
 									},
 								},
@@ -98,7 +99,7 @@ func (r *ListenerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 						},
 						Containers: []core.Container{
 							{
-								Name:            "listener",
+								Name:            "listener-" + e.Name,
 								Image:           "listener:v1",
 								ImagePullPolicy: core.PullNever,
 								Ports: []core.ContainerPort{
@@ -115,6 +116,10 @@ func (r *ListenerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 										Name:  "NATS_URL",
 										Value: "nats://queue:4222",
 									},
+									{
+										Name:  "schema",
+										Value: e.ConfigMap.Key + ".json",
+									},
 								},
 								VolumeMounts: []core.VolumeMount{
 									{
@@ -129,38 +134,38 @@ func (r *ListenerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				},
 			},
 		}
-		if err := ctrl.SetControllerReference(&listener, &d, r.Scheme); err != nil {
+		if err := ctrl.SetControllerReference(&listener, &deployment, r.Scheme); err != nil {
 			fmt.Printf("error: %v\n", err)
 			continue
 		}
-		if err := r.Create(ctx, &d); err != nil {
+		if err := r.Create(ctx, &deployment); err != nil {
 			fmt.Printf("error: %v\n", err)
 		}
 		// Service
-		s := core.Service{
+		service := core.Service{
 			ObjectMeta: v1.ObjectMeta{
-				Name:      "listener",
+				Name:      "listener-" + e.Name,
 				Namespace: "default",
-				Labels:    map[string]string{"app": "listener"},
+				Labels:    map[string]string{"app": "listener", "event": e.Name},
 			},
 			Spec: core.ServiceSpec{
-				Selector: map[string]string{"app": "listener"},
+				Selector: map[string]string{"app": "listener", "event": e.Name},
 				Ports:    []core.ServicePort{{Port: 8080, TargetPort: intstr.FromInt(8080)}},
 				Type:     core.ServiceTypeClusterIP,
 			},
 		}
-		if err := ctrl.SetControllerReference(&listener, &s, r.Scheme); err != nil {
+		if err := ctrl.SetControllerReference(&listener, &service, r.Scheme); err != nil {
 			fmt.Printf("error: %v\n", err)
 			continue
 		}
-		if err := r.Create(ctx, &s); err != nil {
+		if err := r.Create(ctx, &service); err != nil {
 			fmt.Printf("error: %v\n", err)
 		}
 
 		// Ingress
-		i := net.Ingress{
+		ingress := net.Ingress{
 			ObjectMeta: v1.ObjectMeta{
-				Name:        "listener-ingress-http",
+				Name:        "listener-ingress-http-" + e.Name,
 				Namespace:   "default",
 				Annotations: map[string]string{"nginx.ingress.kubernetes.io/ssl-redirect": "true"},
 			},
@@ -173,11 +178,11 @@ func (r *ListenerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 							HTTP: &net.HTTPIngressRuleValue{
 								Paths: []net.HTTPIngressPath{
 									{
-										Path:     "/",
+										Path:     "/listener/" + e.Name,
 										PathType: &pt,
 										Backend: net.IngressBackend{
 											Service: &net.IngressServiceBackend{
-												Name: "listener",
+												Name: "listener-" + e.Name,
 												Port: net.ServiceBackendPort{
 													Number: 8080,
 												},
@@ -191,11 +196,78 @@ func (r *ListenerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				},
 			},
 		}
-		if err := ctrl.SetControllerReference(&listener, &i, r.Scheme); err != nil {
+		if err := ctrl.SetControllerReference(&listener, &ingress, r.Scheme); err != nil {
 			fmt.Printf("error: %v\n", err)
 			continue
 		}
-		if err := r.Create(ctx, &i); err != nil {
+		if err := r.Create(ctx, &ingress); err != nil {
+			fmt.Printf("error: %v\n", err)
+		}
+
+		// Job
+
+		job := batch.Job{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "exec-" + e.Name,
+				Namespace: "default",
+			},
+			Spec: batch.JobSpec{
+				Template: core.PodTemplateSpec{
+					ObjectMeta: v1.ObjectMeta{
+						Labels: map[string]string{"app": "exec", "event": e.Name},
+					},
+					Spec: core.PodSpec{
+						RestartPolicy: core.RestartPolicyOnFailure,
+						Volumes: []core.Volume{
+							{
+								Name: "local-persistent-storage",
+								VolumeSource: core.VolumeSource{
+									PersistentVolumeClaim: &core.PersistentVolumeClaimVolumeSource{
+										ClaimName: "test-pvc",
+									},
+								},
+							},
+						},
+						Containers: []core.Container{
+							{
+								Name:            "exec-" + e.Name,
+								Image:           e.Executor,
+								ImagePullPolicy: core.PullNever,
+								Env: []core.EnvVar{
+									{
+										Name:  "event",
+										Value: e.Name,
+									},
+									{
+										Name:  "NATS_URL",
+										Value: "nats://queue:4222",
+									},
+									{
+										Name:  "wasm",
+										Value: e.Wasm,
+									},
+									{
+										Name:  "dir",
+										Value: e.Dir,
+									},
+								},
+								VolumeMounts: []core.VolumeMount{
+									{
+										Name:      "local-persistent-storage",
+										MountPath: "/mnt/exec",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		if err := ctrl.SetControllerReference(&listener, &job, r.Scheme); err != nil {
+			fmt.Printf("error: %v\n", err)
+			continue
+		}
+		if err := r.Create(ctx, &job); err != nil {
 			fmt.Printf("error: %v\n", err)
 		}
 	}

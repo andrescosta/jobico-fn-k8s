@@ -203,11 +203,14 @@ mv "$$(echo "$(1)" | sed "s/-$(3)$$//")" $(1) ;\
 endef
 
 .PHONY: kind
-kind: kind-cluster ingress 
+kind: kind-cluster ingress dir
 
 kind-cluster:
 	@kind create cluster -n jobico --config ./k8s/manifests/cluster.yaml
 
+dir:
+	@docker exec -it jobico-control-plane mkdir -p /data/volumes/pv1 chmod 777 /data/volumes/pv1
+	
 .PHONY: ingress wait-ingress
 
 ingress:
@@ -218,13 +221,22 @@ wait-ingress:
 
 .PHONY: load-image compile-image listener
 
-listener: compile-image-listener load-image
+listener: compile-image-listener load-image-listener
 
 compile-image-listener: 
 	 docker build -t listener:v1 -f ./k8s/docker/dockerfile.listener .
 
-load-image: compile-image
+load-image-listener: compile-image-listener
 	kind load docker-image listener:v1 -n jobico
+
+exec: compile-image-exec load-image-exec
+
+compile-image-exec: 
+	 docker build -t exec:v1 -f ./k8s/docker/dockerfile.exec .
+
+load-image-exec: compile-image
+	kind load docker-image exec:v1 -n jobico
+
 
 nats:
 	kubectl apply -f ./config/nats/cluster.yaml
