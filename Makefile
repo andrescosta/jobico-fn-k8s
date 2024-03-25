@@ -211,7 +211,7 @@ kind-delete:
 	@kind delete cluster -n jobico
 
 kind-cluster:
-	@kind create cluster -n jobico --config ./k8s/manifests/cluster.yaml
+	@kind create cluster -n jobico --config ./config/cluster/cluster.yaml
 
 dir:
 	@docker exec -it jobico-control-plane mkdir -p /data/volumes/pv1/wasm chmod 777 /data/volumes/pv1/wasm
@@ -245,10 +245,10 @@ wasm:
 	@docker cp wasm/echo.wasm jobico-control-plane:/data/volumes/pv1/wasm
 
 ex1:
-	@kubectl apply -f samples/1.yaml
+	@kubectl apply -f config/samples/1.yaml
 
 ex2:
-	@kubectl apply -f samples/2.yaml
+	@kubectl apply -f config/samples/2.yaml
 ## Images
 .PHONY: load-image-listener compile-image-listener load-image-exec compile-image-exec listener exec images
 
@@ -257,7 +257,7 @@ images: listener exec
 listener: compile-image-listener load-image-listener
 
 compile-image-listener: 
-	 docker build -t listener:v1 -f ./k8s/docker/dockerfile.listener .
+	 docker build -t listener:v1 -f ./docker/dockerfile.listener .
 
 load-image-listener: 
 	kind load docker-image listener:v1 -n jobico
@@ -265,7 +265,7 @@ load-image-listener:
 exec: compile-image-exec load-image-exec
 
 compile-image-exec: 
-	 docker build -t exec:v1 -f ./k8s/docker/dockerfile.exec .
+	 docker build -t exec:v1 -f ./docker/dockerfile.exec .
 
 load-image-exec:
 	kind load docker-image exec:v1 -n jobico

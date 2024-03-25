@@ -1,4 +1,7 @@
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: schema-ev1
 data:
   schema-ev1.json: |
     {
@@ -16,6 +19,18 @@ data:
       },
       "required": ["firstName", "lastName"]
     }
-kind: ConfigMap
+  
+---
+apiVersion: jobico.coeux.dev/v1
+kind: Job
 metadata:
-  name: schema-ev1
+  labels:
+    app.kubernetes.io/name: project
+    app.kubernetes.io/managed-by: kustomize
+  name: job-for-ev1
+spec:
+  events:
+    - name: ev1
+      wasm: echo.wasm
+      schema:
+        key: schema-ev1
