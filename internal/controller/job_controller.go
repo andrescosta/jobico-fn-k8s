@@ -34,35 +34,35 @@ import (
 	jobicov1 "github.com/andrescosta/jobicok8s/api/v1"
 )
 
-// ListenerReconciler reconciles a Listener object
-type ListenerReconciler struct {
+// JobReconciler reconciles a Job object
+type JobReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
 
-//+kubebuilder:rbac:groups=jobico.coeux.dev,resources=listeners,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=jobico.coeux.dev,resources=listeners/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=jobico.coeux.dev,resources=listeners/finalizers,verbs=update
+//+kubebuilder:rbac:groups=jobico.coeux.dev,resources=jobs,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=jobico.coeux.dev,resources=jobs/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=jobico.coeux.dev,resources=jobs/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 // TODO(user): Modify the Reconcile function to compare the state specified by
-// the Listener object against the actual cluster state, and then
+// the Job object against the actual cluster state, and then
 // perform operations to make the cluster state reflect the state specified by
 // the user.
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.17.0/pkg/reconcile
-func (r *ListenerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 
-	var listener jobicov1.Listener
-	if err := r.Get(ctx, req.NamespacedName, &listener); err != nil {
+	var jobdef jobicov1.Job
+	if err := r.Get(ctx, req.NamespacedName, &jobdef); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	fmt.Printf("creating %s", listener.Name)
-	for _, e := range listener.Spec.Events {
+	fmt.Printf("creating %s", jobdef.Name)
+	for _, e := range jobdef.Spec.Events {
 		// Deployment
 		repls := int32(1)
 		class := "nginx"
@@ -91,7 +91,7 @@ func (r *ListenerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 									ConfigMap: &core.ConfigMapVolumeSource{
 										DefaultMode: &dm,
 										LocalObjectReference: core.LocalObjectReference{
-											Name: e.ConfigMap.Key,
+											Name: e.Schema.Key,
 										},
 									},
 								},
@@ -118,7 +118,7 @@ func (r *ListenerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 									},
 									{
 										Name:  "schema",
-										Value: e.ConfigMap.Key + ".json",
+										Value: e.Schema.Key + ".json",
 									},
 								},
 								VolumeMounts: []core.VolumeMount{
@@ -134,7 +134,7 @@ func (r *ListenerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				},
 			},
 		}
-		if err := ctrl.SetControllerReference(&listener, &deployment, r.Scheme); err != nil {
+		if err := ctrl.SetControllerReference(&jobdef, &deployment, r.Scheme); err != nil {
 			fmt.Printf("error: %v\n", err)
 			continue
 		}
@@ -154,7 +154,7 @@ func (r *ListenerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				Type:     core.ServiceTypeClusterIP,
 			},
 		}
-		if err := ctrl.SetControllerReference(&listener, &service, r.Scheme); err != nil {
+		if err := ctrl.SetControllerReference(&jobdef, &service, r.Scheme); err != nil {
 			fmt.Printf("error: %v\n", err)
 			continue
 		}
@@ -196,7 +196,7 @@ func (r *ListenerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				},
 			},
 		}
-		if err := ctrl.SetControllerReference(&listener, &ingress, r.Scheme); err != nil {
+		if err := ctrl.SetControllerReference(&jobdef, &ingress, r.Scheme); err != nil {
 			fmt.Printf("error: %v\n", err)
 			continue
 		}
@@ -231,7 +231,7 @@ func (r *ListenerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 						Containers: []core.Container{
 							{
 								Name:            "exec-" + e.Name,
-								Image:           e.Executor,
+								Image:           "exec:v1",
 								ImagePullPolicy: core.PullNever,
 								Env: []core.EnvVar{
 									{
@@ -248,7 +248,7 @@ func (r *ListenerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 									},
 									{
 										Name:  "dir",
-										Value: e.Dir,
+										Value: "/mnt/exec",
 									},
 								},
 								VolumeMounts: []core.VolumeMount{
@@ -263,7 +263,7 @@ func (r *ListenerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				},
 			},
 		}
-		if err := ctrl.SetControllerReference(&listener, &job, r.Scheme); err != nil {
+		if err := ctrl.SetControllerReference(&jobdef, &job, r.Scheme); err != nil {
 			fmt.Printf("error: %v\n", err)
 			continue
 		}
@@ -271,12 +271,13 @@ func (r *ListenerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			fmt.Printf("error: %v\n", err)
 		}
 	}
+
 	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ListenerReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&jobicov1.Listener{}).
+		For(&jobicov1.Job{}).
 		Complete(r)
 }

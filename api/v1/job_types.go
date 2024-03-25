@@ -24,47 +24,43 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// ListenerSpec defines the desired state of Listener
-type ListenerSpec struct {
+// JobSpec defines the desired state of Job
+type JobSpec struct {
 	Events []Event `json:"events,omitempty"`
 }
 
 type Event struct {
-	Name      string                      `json:"name"`
-	Executor  string                      `json:"exec,omitempty"`
-	Wasm      string                      `json:"wasm,omitempty"`
-	Dir       string                      `json:"dir,omitempty"`
-	ConfigMap corev1.ConfigMapKeySelector `json:"configmap"`
+	Name   string                      `json:"name"`
+	Wasm   string                      `json:"wasm,omitempty"`
+	Schema corev1.ConfigMapKeySelector `json:"schema"`
 }
 
-// ListenerStatus defines the observed state of Listener
-type ListenerStatus struct {
-	// A list of pointers to currently running jobs.
-	// +optional
+// JobStatus defines the observed state of Job
+type JobStatus struct {
 	Active []corev1.ObjectReference `json:"active,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 
-// Listener is the Schema for the listeners API
-type Listener struct {
+// Job is the Schema for the jobs API
+type Job struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   ListenerSpec   `json:"spec,omitempty"`
-	Status ListenerStatus `json:"status,omitempty"`
+	Spec   JobSpec   `json:"spec,omitempty"`
+	Status JobStatus `json:"status,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 
-// ListenerList contains a list of Listener
-type ListenerList struct {
+// JobList contains a list of Job
+type JobList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []Listener `json:"items"`
+	Items           []Job `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&Listener{}, &ListenerList{})
+	SchemeBuilder.Register(&Job{}, &JobList{})
 }

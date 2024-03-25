@@ -5,7 +5,7 @@
 domain: coeux.dev
 layout:
 - go.kubebuilder.io/v4
-projectName: jobicok8s
+projectName: j
 repo: github.com/andrescosta/jobicok8s
 resources:
 - api:
@@ -14,7 +14,7 @@ resources:
   controller: true
   domain: coeux.dev
   group: jobico
-  kind: Listener
+  kind: Job
   path: github.com/andrescosta/jobicok8s/api/v1
   version: v1
 version: "3"

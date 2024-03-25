@@ -27,7 +27,7 @@ import (
 	"github.com/andrescosta/jobicok8s/test/utils"
 )
 
-const namespace = "jobicok8s-system"
+const namespace = "j-system"
 
 var _ = Describe("controller", Ordered, func() {
 	BeforeAll(func() {
@@ -60,7 +60,7 @@ var _ = Describe("controller", Ordered, func() {
 			var err error
 
 			// projectimage stores the name of the image used in the example
-			var projectimage = "example.com/jobicok8s:v0.0.1"
+			var projectimage = "example.com/j:v0.0.1"
 
 			By("building the manager(Operator) image")
 			cmd := exec.Command("make", "docker-build", fmt.Sprintf("IMG=%s", projectimage))

@@ -7,7 +7,7 @@ rules:
 - apiGroups:
   - jobico.coeux.dev
   resources:
-  - listeners
+  - jobs
   verbs:
   - create
   - delete
@@ -19,13 +19,13 @@ rules:
 - apiGroups:
   - jobico.coeux.dev
   resources:
-  - listeners/finalizers
+  - jobs/finalizers
   verbs:
   - update
 - apiGroups:
   - jobico.coeux.dev
   resources:
-  - listeners/status
+  - jobs/status
   verbs:
   - get
   - patch

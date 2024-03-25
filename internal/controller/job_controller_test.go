@@ -30,7 +30,7 @@ import (
 	jobicov1 "github.com/andrescosta/jobicok8s/api/v1"
 )
 
-var _ = Describe("Listener Controller", func() {
+var _ = Describe("Job Controller", func() {
 	Context("When reconciling a resource", func() {
 		const resourceName = "test-resource"
 
@@ -40,13 +40,13 @@ var _ = Describe("Listener Controller", func() {
 			Name:      resourceName,
 			Namespace: "default", // TODO(user):Modify as needed
 		}
-		listener := &jobicov1.Listener{}
+		job := &jobicov1.Job{}
 
 		BeforeEach(func() {
-			By("creating the custom resource for the Kind Listener")
-			err := k8sClient.Get(ctx, typeNamespacedName, listener)
+			By("creating the custom resource for the Kind Job")
+			err := k8sClient.Get(ctx, typeNamespacedName, job)
 			if err != nil && errors.IsNotFound(err) {
-				resource := &jobicov1.Listener{
+				resource := &jobicov1.Job{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
 						Namespace: "default",
@@ -59,16 +59,16 @@ var _ = Describe("Listener Controller", func() {
 
 		AfterEach(func() {
 			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &jobicov1.Listener{}
+			resource := &jobicov1.Job{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Cleanup the specific resource instance Listener")
+			By("Cleanup the specific resource instance Job")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 		})
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
-			controllerReconciler := &ListenerReconciler{
+			controllerReconciler := &JobReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
 			}

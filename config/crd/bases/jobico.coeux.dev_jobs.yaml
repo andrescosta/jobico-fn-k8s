@@ -4,20 +4,20 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.14.0
-  name: listeners.jobico.coeux.dev
+  name: jobs.jobico.coeux.dev
 spec:
   group: jobico.coeux.dev
   names:
-    kind: Listener
-    listKind: ListenerList
-    plural: listeners
-    singular: listener
+    kind: Job
+    listKind: JobList
+    plural: jobs
+    singular: job
   scope: Namespaced
   versions:
   - name: v1
     schema:
       openAPIV3Schema:
-        description: Listener is the Schema for the listeners API
+        description: Job is the Schema for the jobs API
         properties:
           apiVersion:
             description: |-
@@ -37,12 +37,14 @@ spec:
           metadata:
             type: object
           spec:
-            description: ListenerSpec defines the desired state of Listener
+            description: JobSpec defines the desired state of Job
             properties:
               events:
                 items:
                   properties:
-                    configmap:
+                    name:
+                      type: string
+                    schema:
                       description: Selects a key from a ConfigMap.
                       properties:
                         key:
@@ -62,25 +64,18 @@ spec:
                       - key
                       type: object
                       x-kubernetes-map-type: atomic
-                    dir:
-                      type: string
-                    exec:
-                      type: string
-                    name:
-                      type: string
                     wasm:
                       type: string
                   required:
-                  - configmap
                   - name
+                  - schema
                   type: object
                 type: array
             type: object
           status:
-            description: ListenerStatus defines the observed state of Listener
+            description: JobStatus defines the observed state of Job
             properties:
               active:
-                description: A list of pointers to currently running jobs.
                 items:
                   description: |-
                     ObjectReference contains enough information to let you inspect or modify the referred object.

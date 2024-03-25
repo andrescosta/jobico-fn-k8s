@@ -6,8 +6,8 @@ metadata:
     app.kubernetes.io/name: namespace
     app.kubernetes.io/instance: system
     app.kubernetes.io/component: manager
-    app.kubernetes.io/created-by: jobicok8s
-    app.kubernetes.io/part-of: jobicok8s
+    app.kubernetes.io/created-by: j
+    app.kubernetes.io/part-of: j
     app.kubernetes.io/managed-by: kustomize
   name: system
 ---
@@ -21,8 +21,8 @@ metadata:
     app.kubernetes.io/name: deployment
     app.kubernetes.io/instance: controller-manager
     app.kubernetes.io/component: manager
-    app.kubernetes.io/created-by: jobicok8s
-    app.kubernetes.io/part-of: jobicok8s
+    app.kubernetes.io/created-by: j
+    app.kubernetes.io/part-of: j
     app.kubernetes.io/managed-by: kustomize
 spec:
   selector:
