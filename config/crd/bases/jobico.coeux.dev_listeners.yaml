@@ -42,7 +42,9 @@ spec:
               events:
                 items:
                   properties:
-                    configmap:
+                    name:
+                      type: string
+                    schema:
                       description: Selects a key from a ConfigMap.
                       properties:
                         key:
@@ -62,17 +64,11 @@ spec:
                       - key
                       type: object
                       x-kubernetes-map-type: atomic
-                    dir:
-                      type: string
-                    exec:
-                      type: string
-                    name:
-                      type: string
                     wasm:
                       type: string
                   required:
-                  - configmap
                   - name
+                  - schema
                   type: object
                 type: array
             type: object

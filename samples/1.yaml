@@ -1,3 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: schema-ev1
+data:
+  schema-ev1.json: |
+    {
+      "type": "object",
+      "properties": {
+          "firstName": {
+              "type": "string"
+          },
+          "lastName": {
+              "type": "string"
+          },
+          "age": {
+              "type": "integer"
+          }
+      },
+      "required": ["firstName", "lastName"]
+    }
+  
+---
 apiVersion: jobico.coeux.dev/v1
 kind: Listener
 metadata:
@@ -8,8 +31,6 @@ metadata:
 spec:
   events:
     - name: ev1
-      exec: exec:v1
-      dir: /mnt/exec
       wasm: echo.wasm
-      configmap:
+      schema:
         key: schema-ev1

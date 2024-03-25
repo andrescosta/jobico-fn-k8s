@@ -30,11 +30,9 @@ type ListenerSpec struct {
 }
 
 type Event struct {
-	Name      string                      `json:"name"`
-	Executor  string                      `json:"exec,omitempty"`
-	Wasm      string                      `json:"wasm,omitempty"`
-	Dir       string                      `json:"dir,omitempty"`
-	ConfigMap corev1.ConfigMapKeySelector `json:"configmap"`
+	Name   string                      `json:"name"`
+	Wasm   string                      `json:"wasm,omitempty"`
+	Schema corev1.ConfigMapKeySelector `json:"schema"`
 }
 
 // ListenerStatus defines the observed state of Listener

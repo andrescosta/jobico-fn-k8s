@@ -91,7 +91,7 @@ func (r *ListenerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 									ConfigMap: &core.ConfigMapVolumeSource{
 										DefaultMode: &dm,
 										LocalObjectReference: core.LocalObjectReference{
-											Name: e.ConfigMap.Key,
+											Name: e.Schema.Key,
 										},
 									},
 								},
@@ -118,7 +118,7 @@ func (r *ListenerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 									},
 									{
 										Name:  "schema",
-										Value: e.ConfigMap.Key + ".json",
+										Value: e.Schema.Key + ".json",
 									},
 								},
 								VolumeMounts: []core.VolumeMount{
@@ -231,7 +231,7 @@ func (r *ListenerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 						Containers: []core.Container{
 							{
 								Name:            "exec-" + e.Name,
-								Image:           e.Executor,
+								Image:           "exec:v1",
 								ImagePullPolicy: core.PullNever,
 								Env: []core.EnvVar{
 									{
@@ -248,7 +248,7 @@ func (r *ListenerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 									},
 									{
 										Name:  "dir",
-										Value: e.Dir,
+										Value: "/mnt/exec",
 									},
 								},
 								VolumeMounts: []core.VolumeMount{
