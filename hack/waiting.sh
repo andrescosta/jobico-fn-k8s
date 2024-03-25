@@ -1,6 +1,6 @@
 #!/bin/bash
 
-namespace="jobico"
+namespace="default"
 
 # Function to check if all ingresses have an IP address
 function check_ingresses {
