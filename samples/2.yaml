@@ -3,7 +3,7 @@ kind: ConfigMap
 metadata:
   name: schema-ev2
 data:
-  schema-ev1.json: |
+  schema-ev2.json: |
     {
       "type": "object",
       "properties": {
@@ -23,12 +23,12 @@ data:
 ---
 
 apiVersion: jobico.coeux.dev/v1
-kind: Listener
+kind: Job
 metadata:
-  name: listener-for-ev2
+  name: job-for-ev2
 spec:
   events:
     - name: ev2
       wasm: echo.wasm
       schema:
-        key: schema-ev1
+        key: schema-ev2

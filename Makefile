@@ -203,18 +203,18 @@ mv "$$(echo "$(1)" | sed "s/-$(3)$$//")" $(1) ;\
 endef
 
 ## Kind
-.PHONY: kind kind-cluster ingress dir storage nats wasm
+.PHONY: kind kind-delete kind-cluster ingress dir storage nats
 
-kind: kind-cluster ingress dir storage nats install wasm
+kind: kind-cluster ingress dir storage nats
+
+kind-delete:
+	@kind delete cluster -n jobico
 
 kind-cluster:
 	@kind create cluster -n jobico --config ./k8s/manifests/cluster.yaml
 
 dir:
 	@docker exec -it jobico-control-plane mkdir -p /data/volumes/pv1/wasm chmod 777 /data/volumes/pv1/wasm
-
-wasm:
-	@docker cp wasm/echo.wasm jobico-control-plane:/data/volumes/pv1/wasm
 
 storage:
 	@kubectl apply -f config/storage/storage.yaml
@@ -230,6 +230,25 @@ ingress:
 wait-ingress:
 	@kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=90s
 
+# Op
+
+.PHONY: op
+
+op: manifests install images
+
+# Echo example
+.PHONY: echo wasm ex1 ex2
+
+echo: wasm
+
+wasm:
+	@docker cp wasm/echo.wasm jobico-control-plane:/data/volumes/pv1/wasm
+
+ex1:
+	@kubectl apply -f samples/1.yaml
+
+ex2:
+	@kubectl apply -f samples/2.yaml
 ## Images
 .PHONY: load-image-listener compile-image-listener load-image-exec compile-image-exec listener exec images
 
