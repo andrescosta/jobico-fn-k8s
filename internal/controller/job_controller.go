@@ -44,10 +44,10 @@ type JobReconciler struct {
 //+kubebuilder:rbac:groups=jobico.coeux.dev,resources=jobs/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=jobico.coeux.dev,resources=jobs/finalizers,verbs=update
 
-//+kubebuilder:rbac:groups=apps,resources=deployment,verbs=create;update;patch
-//+kubebuilder:rbac:resources=service,verbs=create;update;patch
-//+kubebuilder:rbac:groups=networking.k8s.io,resources=ingress,verbs=create;update;patch
-//+kubebuilder:rbac:groups=batch,resources=job,verbs=create;update;patch
+//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;update;patch
+//+kubebuilder:rbac:groups="",resources=services,verbs=create;update;patch
+//+kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=create;update;patch
+//+kubebuilder:rbac:groups=batch,resources=jobs,verbs=create;update;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.

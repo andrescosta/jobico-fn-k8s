@@ -112,7 +112,7 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' docker/dockerfile.op > Dockerfile.cross
 	- $(CONTAINER_TOOL) buildx create --name project-v3-builder
 	$(CONTAINER_TOOL) buildx use project-v3-builder
-	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
+	- $(CONTAINER_TOOL) buildx build --load --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
 	- $(CONTAINER_TOOL) buildx rm project-v3-builder
 	rm Dockerfile.cross
 
@@ -262,6 +262,9 @@ compile-image-listener:
 load-image-listener: 
 	kind load docker-image listener:v1 -n jobico
 
+load-image-controller: 
+	kind load docker-image controller:latest -n jobico
+
 exec: compile-image-exec load-image-exec
 
 compile-image-exec: 
@@ -269,3 +272,9 @@ compile-image-exec:
 
 load-image-exec:
 	kind load docker-image exec:v1 -n jobico
+
+# Cert manager
+.PHONY: cert-manager-install
+
+cert-manager-install:
+	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.4/cert-manager.yaml

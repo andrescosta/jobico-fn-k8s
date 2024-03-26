@@ -24,9 +24,6 @@ data:
 apiVersion: jobico.coeux.dev/v1
 kind: Job
 metadata:
-  labels:
-    app.kubernetes.io/name: project
-    app.kubernetes.io/managed-by: kustomize
   name: job-for-ev1
 spec:
   events:
