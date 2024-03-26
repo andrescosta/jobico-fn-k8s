@@ -4,6 +4,28 @@ kind: ClusterRole
 metadata:
   name: manager-role
 rules:
+- resources:
+  - service
+  verbs:
+  - create
+  - patch
+  - update
+- apiGroups:
+  - apps
+  resources:
+  - deployment
+  verbs:
+  - create
+  - patch
+  - update
+- apiGroups:
+  - batch
+  resources:
+  - job
+  verbs:
+  - create
+  - patch
+  - update
 - apiGroups:
   - jobico.coeux.dev
   resources:
@@ -28,5 +50,13 @@ rules:
   - jobs/status
   verbs:
   - get
+  - patch
+  - update
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingress
+  verbs:
+  - create
   - patch
   - update
