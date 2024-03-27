@@ -17,7 +17,11 @@ limitations under the License.
 package v1
 
 import (
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	validationutils "k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -52,27 +56,13 @@ var _ webhook.Validator = &Job{}
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
 func (r *Job) ValidateCreate() (admission.Warnings, error) {
 	joblog.Info("validate create", "name", r.Name)
-
-	// TODO:
-	// Check all parameters are not empty
-	// Validates:
-	// The wasm file exists
-	// The schema key exists
-	// The event is unique
-	return nil, nil
+	return r.validate()
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (r *Job) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
 	joblog.Info("validate update", "name", r.Name)
-
-	// TODO:
-	// Check all parameters are not empty
-	// Validates:
-	// The wasm file exists
-	// The schema key exists
-	// The event is unique
-	return nil, nil
+	return r.validate()
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
@@ -81,5 +71,32 @@ func (r *Job) ValidateDelete() (admission.Warnings, error) {
 
 	// TODO:
 	// The queue is empty
+	return nil, nil
+}
+
+func (r *Job) validate() (admission.Warnings, error) {
+	var allErrors field.ErrorList
+	if len(r.Spec.Events) == 0 {
+		allErrors = append(allErrors, field.Required(field.NewPath("events[]"), ""))
+	}
+	if len(r.ObjectMeta.Name) > validationutils.DNS1035LabelMaxLength-24 {
+		allErrors = append(allErrors, field.Invalid(field.NewPath("metadata").Child("name"), r.Name, "must be no more than 35 characters"))
+	}
+	for _, e := range r.Spec.Events {
+		if e.Name == "" {
+			allErrors = append(allErrors, field.Required(field.NewPath("events[]").Child("name"), ""))
+		}
+		if e.Wasm == "" {
+			allErrors = append(allErrors, field.Required(field.NewPath("events[]").Child("wasm"), ""))
+		}
+		if e.Schema.Key == "" {
+			allErrors = append(allErrors, field.Required(field.NewPath("events[]").Child("key"), ""))
+		}
+	}
+	if len(allErrors) > 0 {
+		return nil, apierrors.NewInvalid(
+			schema.GroupKind{Group: GroupVersion.Group, Kind: r.Kind},
+			r.Name, allErrors)
+	}
 	return nil, nil
 }

@@ -9,6 +9,8 @@
 *.dylib
 
 /bin
+/certs
+/backup_certs
 *__debug*
 # Test binary, built with `go test -c`
 *.test

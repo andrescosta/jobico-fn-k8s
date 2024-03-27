@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: schema-ev3
+data:
+  schema-ev3.json: |
+    {
+      "type": "object",
+      "properties": {
+          "firstName": {
+              "type": "string"
+          },
+          "lastName": {
+              "type": "string"
+          },
+          "age": {
+              "type": "integer"
+          }
+      },
+      "required": ["firstName", "lastName"]
+    }
+  
+---
+
+apiVersion: jobico.coeux.dev/v1
+kind: Job
+metadata:
+  name: job-for-ev3
+spec:
+  events:
+    - name: ev3
+      wasm: echo.wasm
+      schema:
+        key: schema-ev3
