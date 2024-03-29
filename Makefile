@@ -206,7 +206,7 @@ endef
 ## Kind
 .PHONY: kind kind-delete kind-cluster ingress dir storage nats
 
-kind: kind-cluster ingress dir storage nats
+kind: kind-cluster ingress dir storage nats cert-manager-install
 
 kind-delete:
 	@kind delete cluster -n jobico
@@ -250,7 +250,7 @@ ex1:
 ex2:
 	@kubectl apply -f config/samples/2.yaml
 ## Images
-.PHONY: load-image-listener compile-image-listener load-image-exec compile-image-exec listener exec images
+.PHONY: load-image-listener compile-image-listener load-image-exec compile-image-exec listener exec images cert-manager-install
 
 images: listener exec
 
