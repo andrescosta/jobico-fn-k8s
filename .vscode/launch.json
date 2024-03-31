@@ -21,7 +21,7 @@
             "mode": "debug",
             "program": "${workspaceFolder}/cmd/opjob/main.go",
             "args": [
-                "--local-dir"
+                "--cert-dir=../../certs"
             ]
         }
     ]
