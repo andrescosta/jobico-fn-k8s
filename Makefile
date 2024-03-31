@@ -283,15 +283,13 @@ cert-manager-install:
 
 # Local certs
 CERTSDIR=./certs
-.PHONY: new-certs gen-certs
+.PHONY: gen-certs new-certs 
+
 new-certs: gen-certs gen-cfg-webhook
 
 gen-certs:
-	@mkdir -p $(CERTSDIR)
-	@cd $(CERTSDIR) && \
-		openssl genrsa 2048 > tls.key && \
-		openssl req -new -x509 -nodes -sha256 -days 365 -key tls.key -out tls.crt -subj "/C=XX"	
-	
+	@export CAROOT=$(CERTSDIR);mkcert -cert-file=$(CERTSDIR)/tls.crt -key-file=$(CERTSDIR)/tls.key host.docker.internal 172.17.0.1
+
 # files
 .PHONY: gen-cfg-webhook gen-cfg-validating gen-cfg-mutating gen-cfg-converting
 
@@ -308,3 +306,7 @@ gen-cfg-mutating:
 gen-cfg-converting:
 	@key_base64=$$(cat certs/rootCA.pem | base64 -w 0);\
 	sed "s|<key>|$$key_base64|g" config/local/webhook_conversion.yaml.tmpl > config/local/webhook_conversion.yaml
+
+gen-ca:
+	@mkdir -p $(CERTSDIR)
+	@export CAROOT=$(CERTSDIR); mkcert -install

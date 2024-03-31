@@ -12,6 +12,10 @@
 /certs
 /backup_certs
 /dist
+/dist-local
+/config/local/webhook_conversion.yaml
+/config/local/webhook_mutating.yaml
+/config/local/webhook_validating.yaml
 *__debug*
 # Test binary, built with `go test -c`
 *.test
