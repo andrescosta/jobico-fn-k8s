@@ -391,7 +391,7 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - service
+  - services
   verbs:
   - create
   - patch
@@ -399,7 +399,7 @@ rules:
 - apiGroups:
   - apps
   resources:
-  - deployment
+  - deployments
   verbs:
   - create
   - patch
@@ -407,7 +407,7 @@ rules:
 - apiGroups:
   - batch
   resources:
-  - job
+  - jobs
   verbs:
   - create
   - patch
@@ -441,7 +441,7 @@ rules:
 - apiGroups:
   - networking.k8s.io
   resources:
-  - ingress
+  - ingresses
   verbs:
   - create
   - patch
@@ -684,6 +684,8 @@ spec:
             - ALL
       securityContext:
         runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       serviceAccountName: j-controller-manager
       terminationGracePeriodSeconds: 10
       volumes:

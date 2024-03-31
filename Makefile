@@ -1,24 +1,15 @@
 
-# Image URL to use all building/pushing image targets
 IMG ?= controller:latest
-# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.29.0
 
-# Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
 else
 GOBIN=$(shell go env GOBIN)
 endif
 
-# CONTAINER_TOOL defines the container tool to be used for building images.
-# Be aware that the target commands are only tested with Docker which is
-# scaffolded by default. However, you might want to replace it to use other
-# tools. (i.e. podman)
 CONTAINER_TOOL ?= docker
 
-# Setting SHELL to bash allows bash commands to be executed by recipes.
-# Options are set to exit when a recipe line exits non-zero or a piped command fails.
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
@@ -64,7 +55,6 @@ vet: ## Run go vet against code.
 test: manifests generate fmt vet envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
-# Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
 .PHONY: test-e2e  # Run the e2e tests against a Kind k8s instance that is spun up.
 test-e2e:
 	go test ./test/e2e/ -v -ginkgo.v
@@ -87,9 +77,6 @@ build: manifests generate fmt vet ## Build manager binary.
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd/opjob/main.go
 
-# If you wish to build the manager image targeting other platforms you can use the --platform flag.
-# (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
-# More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
 	$(CONTAINER_TOOL) build -t ${IMG} .
@@ -98,12 +85,6 @@ docker-build: ## Build docker image with the manager.
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
 
-# PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
-# architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
-# - be able to use docker buildx. More info: https://docs.docker.com/build/buildx/
-# - have enabled BuildKit. More info: https://docs.docker.com/develop/develop-images/build_enhancements/
-# - be able to push the image to your registry (i.e. if you do not set a valid value via IMG=<myregistry/image:<tag>> then the export will fail)
-# To adequately provide solutions that are compatible with multiple platforms, you should consider using this option.
 PLATFORMS ?= linux/amd64
 #linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
 .PHONY: docker-buildx
@@ -125,6 +106,16 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 	echo "---" >> dist/install.yaml  # Add a document separator before appending
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default >> dist/install.yaml
+
+.PHONY: build-installer-local
+build-installer-local: kustomize
+	mkdir -p dist-local
+	@if [ -d "config/crd" ]; then \
+		$(KUSTOMIZE) build config/crd > dist-local/install.yaml; \
+	fi
+	echo "---" >> dist-local/install.yaml
+	$(KUSTOMIZE) build config/local >> dist-local/install.yaml
+
 
 ##@ Deployment
 
@@ -148,6 +139,14 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+
+.PHONY: deploy-local
+deploy-local: manifests kustomize 
+	$(KUSTOMIZE) build config/local | $(KUBECTL) apply -f -
+
+.PHONY: undeploy-local
+undeploy-local: manifests kustomize 
+	$(KUSTOMIZE) build config/local | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
 ##@ Dependencies
 
@@ -189,10 +188,6 @@ golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/cmd/golangci-lint,${GOLANGCI_LINT_VERSION})
 
-# go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
-# $1 - target path with name of binary (ideally with version)
-# $2 - package url which can be installed
-# $3 - specific version of package
 define go-install-tool
 @[ -f $(1) ] || { \
 set -e; \
@@ -249,8 +244,15 @@ ex1:
 
 ex2:
 	@kubectl apply -f config/samples/2.yaml
+
+del-ex1:
+	@kubectl delete -f config/samples/1.yaml
+
+del-ex2:
+	@kubectl delete -f config/samples/2.yaml
+
 ## Images
-.PHONY: load-image-listener compile-image-listener load-image-exec compile-image-exec listener exec images cert-manager-install
+.PHONY: load-image-listener compile-image-listener load-image-exec compile-image-exec listener exec images cert-manager-install load-controller
 
 images: listener exec
 
@@ -262,7 +264,7 @@ compile-image-listener:
 load-image-listener: 
 	kind load docker-image listener:v1 -n jobico
 
-load-image-controller: 
+load-controller: 
 	kind load docker-image controller:latest -n jobico
 
 exec: compile-image-exec load-image-exec
@@ -278,3 +280,31 @@ load-image-exec:
 
 cert-manager-install:
 	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.4/cert-manager.yaml
+
+# Local certs
+CERTSDIR=./certs
+.PHONY: new-certs gen-certs
+new-certs: gen-certs gen-cfg-webhook
+
+gen-certs:
+	@mkdir -p $(CERTSDIR)
+	@cd $(CERTSDIR) && \
+		openssl genrsa 2048 > tls.key && \
+		openssl req -new -x509 -nodes -sha256 -days 365 -key tls.key -out tls.crt -subj "/C=XX"	
+	
+# files
+.PHONY: gen-cfg-webhook gen-cfg-validating gen-cfg-mutating gen-cfg-converting
+
+gen-cfg-webhook: gen-cfg-validating gen-cfg-mutating gen-cfg-converting
+
+gen-cfg-validating:
+	@key_base64=$$(cat certs/rootCA.pem | base64 -w 0);\
+	sed "s|<key>|$$key_base64|g" config/local/webhook_validating.yaml.tmpl > config/local/webhook_validating.yaml
+
+gen-cfg-mutating:
+	@key_base64=$$(cat certs/rootCA.pem | base64 -w 0);\
+	sed "s|<key>|$$key_base64|g" config/local/webhook_mutating.yaml.tmpl > config/local/webhook_mutating.yaml
+
+gen-cfg-converting:
+	@key_base64=$$(cat certs/rootCA.pem | base64 -w 0);\
+	sed "s|<key>|$$key_base64|g" config/local/webhook_conversion.yaml.tmpl > config/local/webhook_conversion.yaml

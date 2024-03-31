@@ -11,6 +11,7 @@
 /bin
 /certs
 /backup_certs
+/dist
 *__debug*
 # Test binary, built with `go test -c`
 *.test
