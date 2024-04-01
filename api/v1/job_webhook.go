@@ -17,12 +17,17 @@ limitations under the License.
 package v1
 
 import (
+	"context"
+
+	net "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	validationutils "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -92,7 +97,21 @@ func (r *Job) validate() (admission.Warnings, error) {
 		if e.Schema.Key == "" {
 			allErrors = append(allErrors, field.Required(field.NewPath("events[]").Child("key"), ""))
 		}
+		labelSelector, err := labels.Parse("event=" + e.Name)
+		if err != nil {
+			return nil, err
+		}
+		opts := &client.ListOptions{LabelSelector: labelSelector}
+
+		igs := net.IngressList{}
+		if err := r.List(context.Background(), &igs, opts); err != nil {
+			return nil, err
+		}
+		if len(igs.Items) > 0 {
+			allErrors = append(allErrors, field.Invalid(field.NewPath("events[]").Child("name"), e.Name,"A listener already exists for the event."))
+		}
 	}
+
 	if len(allErrors) > 0 {
 		return nil, apierrors.NewInvalid(
 			schema.GroupKind{Group: GroupVersion.Group, Kind: r.Kind},

@@ -65,34 +65,33 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	fmt.Printf("creating %s", jobdef.Name)
 	requeue := false
-	for _, e := range jobdef.Spec.Events {
-		if err := r.reconcileDeployment(ctx, e, jobdef); err != nil {
+	for _, evt := range jobdef.Spec.Events {
+		if err := r.reconcileDeployment(ctx, evt, jobdef); err != nil {
 			fmt.Printf("%v\n", err)
 			return ctrl.Result{}, err
 		}
 
 		// Service
-		if err := r.reconcileService(ctx, e, jobdef); err != nil {
+		if err := r.reconcileService(ctx, evt, jobdef); err != nil {
 			fmt.Printf("%v\n", err)
 			return ctrl.Result{}, err
 		}
 
 		// Ingress
-		if err := r.reconcileIngress(ctx, e, jobdef); err != nil {
+		if err := r.reconcileIngress(ctx, evt, jobdef); err != nil {
 			fmt.Printf("%v\n", err)
 			return ctrl.Result{}, err
 		}
 
 		// Job
-		if e, err := r.reconcileJob(ctx, e, jobdef); err != nil || e {
-			if err != nil {
-				fmt.Printf("%v\n", err)
-				return ctrl.Result{}, err
-			}
-			requeue = true
+		var err error
+		requeue, err = r.reconcileJob(ctx, evt, jobdef)
+		if err != nil {
+			fmt.Printf("%v\n", err)
+			return ctrl.Result{}, err
 		}
 	}
-	err := r.cleanUp(ctx, jobdef)
+	err := r.cleanUpResourcesOldEvents(ctx, jobdef)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -102,7 +101,121 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	}, nil
 }
 
-func (r *JobReconciler) cleanUp(ctx context.Context, jobdef jobicov1.Job) error {
+func (r *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		Owns(&core.Service{}).
+		Owns(&net.Ingress{}).
+		Owns(&batch.Job{}).
+		Owns(&apps.Deployment{}).
+		For(&jobicov1.Job{}).
+		Complete(r)
+}
+
+func (r *JobReconciler) reconcileJob(ctx context.Context, evt jobicov1.Event, jobdef jobicov1.Job) (bool, error) {
+	jobName := fmt.Sprintf("%s-exec-%s", jobdef.Name, evt.Name)
+	current, err := r.jobDefinition(jobName, jobdef, evt)
+	if err != nil {
+		return false, err
+	}
+	orig := new(batch.Job)
+	exist, err := r.get(ctx, orig, jobName, jobdef.Namespace)
+	if err != nil {
+		return false, err
+	}
+	if exist {
+		if !orig.DeletionTimestamp.IsZero() {
+			return true, nil
+		}
+		if reflect.DeepEqual(
+			current.Spec.Template.Spec.Containers[0].Env,
+			orig.Spec.Template.Spec.Containers[0].Env) {
+			return false, nil
+		}
+
+		// the Job's template section is immutable and cannot be updated.
+		// We delete it and recreate it below.
+		err := r.Delete(ctx, orig, &client.DeleteOptions{PropagationPolicy: ref.Of(v1.DeletePropagationForeground)})
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	if err := r.Create(ctx, current); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+func (r *JobReconciler) reconcileIngress(ctx context.Context, e jobicov1.Event, jobdef jobicov1.Job) error {
+	ingressName := fmt.Sprintf("%s-ingress-%s", jobdef.Name, e.Name)
+	orig := new(net.Ingress)
+	current, err := r.ingressDefinition(ingressName, jobdef, e)
+	if err != nil {
+		return err
+	}
+	exist, err := r.get(ctx, orig, ingressName, jobdef.Namespace)
+	if err != nil {
+		return err
+	}
+	if exist {
+		if current.ObjectMeta.Annotations["event"] != orig.ObjectMeta.Annotations["event"] {
+			return r.Patch(ctx, current, client.StrategicMergeFrom(orig))
+		}
+		return nil
+	}
+	if err := r.Create(ctx, current); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *JobReconciler) reconcileService(ctx context.Context, e jobicov1.Event, jobdef jobicov1.Job) error {
+	serviceName := fmt.Sprintf("%s-service-%s", jobdef.Name, e.Name)
+	current, err := r.serviceDefinition(serviceName, jobdef, e)
+	if err != nil {
+		return err
+	}
+	orig := new(core.Service)
+	exist, err := r.get(ctx, orig, serviceName, jobdef.Namespace)
+	if err != nil {
+		return err
+	}
+	if exist {
+		if current.Labels["event"] != orig.Labels["event"] {
+			return r.Patch(ctx, orig, client.StrategicMergeFrom(current))
+		}
+		return nil
+	}
+	if err := r.Create(ctx, current); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *JobReconciler) reconcileDeployment(ctx context.Context, evt jobicov1.Event, jobdef jobicov1.Job) error {
+	deploymentName := fmt.Sprintf("%s-deployment-%s", jobdef.Name, evt.Name)
+	orig := new(apps.Deployment)
+	current, err := r.deploymentDefinition(deploymentName, jobdef, evt)
+	if err != nil {
+		return err
+	}
+	exist, err := r.get(ctx, orig, deploymentName, jobdef.Namespace)
+	if err != nil {
+		return err
+	}
+	if exist {
+		if !reflect.DeepEqual(orig.Spec.Template.Spec.Containers[0].Env, orig.Spec.Template.Spec.Containers[0].Env) {
+			return r.Patch(ctx, current, client.StrategicMergeFrom(orig))
+		}
+		return nil
+	}
+	if err := r.Create(ctx, current); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *JobReconciler) cleanUpResourcesOldEvents(ctx context.Context, jobdef jobicov1.Job) error {
 	var err error
 	labelSelector, err := labels.Parse("owner=" + jobdef.Name)
 	if err != nil {
@@ -156,137 +269,7 @@ func (r *JobReconciler) cleanUp(ctx context.Context, jobdef jobicov1.Job) error 
 	return nil
 }
 
-func supportedEvent(evt string, evts []jobicov1.Event) bool {
-	for _, e := range evts {
-		if e.Name == evt {
-			return true
-		}
-	}
-	return false
-}
-
-func (r *JobReconciler) reconcileJob(ctx context.Context, evt jobicov1.Event, jobdef jobicov1.Job) (bool, error) {
-	jobName := "exec-" + evt.Name
-	orig := new(batch.Job)
-	current := r.getJobDefinition(jobName, jobdef, evt)
-	exist, err := r.get(ctx, orig, jobName, jobdef.Namespace)
-	if err != nil {
-		return false, err
-	}
-	if exist {
-		if !orig.DeletionTimestamp.IsZero() {
-			return true, nil
-		}
-		b := reflect.DeepEqual(current.Spec.Template.Spec.Containers[0].Env, orig.Spec.Template.Spec.Containers[0].Env)
-		if b {
-			return false, nil
-		}
-		// the Job's template section is immutable and cannot be updated.
-		// We delete it and recreate it below.
-		err := r.Delete(ctx, orig, &client.DeleteOptions{PropagationPolicy: ref.Of(v1.DeletePropagationForeground)})
-		if err != nil {
-			return false, err
-		}
-		return true, nil
-	}
-	if err := ctrl.SetControllerReference(&jobdef, current, r.Scheme); err != nil {
-		return false, err
-	}
-	if err := r.Create(ctx, current); err != nil {
-		return false, err
-	}
-	return false, nil
-}
-
-func (*JobReconciler) getJobDefinition(jobName string, jobdef jobicov1.Job, evt jobicov1.Event) *batch.Job {
-	job := batch.Job{
-		ObjectMeta: v1.ObjectMeta{
-			Name:      jobName,
-			Namespace: jobdef.Namespace,
-		},
-		Spec: batch.JobSpec{
-			Template: core.PodTemplateSpec{
-				ObjectMeta: v1.ObjectMeta{
-					Labels: map[string]string{"app": "exec", "event": evt.Name, "owner": jobdef.Name},
-				},
-				Spec: core.PodSpec{
-					RestartPolicy: core.RestartPolicyOnFailure,
-					Volumes: []core.Volume{
-						{
-							Name: "local-persistent-storage",
-							VolumeSource: core.VolumeSource{
-								PersistentVolumeClaim: &core.PersistentVolumeClaimVolumeSource{
-									ClaimName: "test-pvc",
-								},
-							},
-						},
-					},
-					Containers: []core.Container{
-						{
-							Name:            "exec-" + evt.Name,
-							Image:           "exec:v1",
-							ImagePullPolicy: core.PullNever,
-							Env: []core.EnvVar{
-								{
-									Name:  "event",
-									Value: evt.Name,
-								},
-								{
-									Name:  "NATS_URL",
-									Value: "nats://queue:4222",
-								},
-								{
-									Name:  "wasm",
-									Value: evt.Wasm,
-								},
-								{
-									Name:  "dir",
-									Value: "/mnt/exec",
-								},
-							},
-							VolumeMounts: []core.VolumeMount{
-								{
-									Name:      "local-persistent-storage",
-									MountPath: "/mnt/exec",
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-	return &job
-}
-
-func (r *JobReconciler) reconcileIngress(ctx context.Context, e jobicov1.Event, jobdef jobicov1.Job) error {
-	ingressName := "listener-ingress-http-" + e.Name
-	orig := new(net.Ingress)
-	current := r.getIngressDefinition(ingressName, jobdef, e)
-	if err := ctrl.SetControllerReference(&jobdef, current, r.Scheme); err != nil {
-		fmt.Printf("error: %v\n", err)
-		return err
-	}
-	exist, err := r.get(ctx, orig, ingressName, jobdef.Namespace)
-	if err != nil {
-		return err
-	}
-	if exist {
-		oev := orig.ObjectMeta.Annotations["event"]
-		cev := current.ObjectMeta.Annotations["event"]
-		if cev != oev {
-			return r.Patch(ctx, current, client.StrategicMergeFrom(orig))
-		}
-		return nil
-	}
-	if err := r.Create(ctx, current); err != nil {
-		fmt.Printf("error: %v\n", err)
-		return err
-	}
-	return nil
-}
-
-func (*JobReconciler) getIngressDefinition(ingressName string, jobdef jobicov1.Job, e jobicov1.Event) *net.Ingress {
+func (r *JobReconciler) ingressDefinition(ingressName string, jobdef jobicov1.Job, e jobicov1.Event) (*net.Ingress, error) {
 	ingress := net.Ingress{
 		ObjectMeta: v1.ObjectMeta{
 			Labels:    map[string]string{"owner": jobdef.Name, "event": e.Name},
@@ -324,37 +307,13 @@ func (*JobReconciler) getIngressDefinition(ingressName string, jobdef jobicov1.J
 			},
 		},
 	}
-	return &ingress
+	if err := ctrl.SetControllerReference(&jobdef, &ingress, r.Scheme); err != nil {
+		return nil, err
+	}
+	return &ingress, nil
 }
 
-func (r *JobReconciler) reconcileService(ctx context.Context, e jobicov1.Event, jobdef jobicov1.Job) error {
-	serviceName := "service-" + e.Name
-	current := r.getServiceDefinition(serviceName, jobdef, e)
-	if err := ctrl.SetControllerReference(&jobdef, current, r.Scheme); err != nil {
-		fmt.Printf("error: %v\n", err)
-		return err
-	}
-	orig := new(core.Service)
-	exist, err := r.get(ctx, orig, serviceName, jobdef.Namespace)
-	if err != nil {
-		return err
-	}
-	if exist {
-		evc := current.Labels["event"]
-		evo := current.Labels["event"]
-		if evc != evo {
-			return r.Patch(ctx, orig, client.StrategicMergeFrom(current))
-		}
-		return nil
-	}
-	if err := r.Create(ctx, current); err != nil {
-		fmt.Printf("error: %v\n", err)
-		return err
-	}
-	return nil
-}
-
-func (*JobReconciler) getServiceDefinition(serviceName string, jobdef jobicov1.Job, e jobicov1.Event) *core.Service {
+func (r *JobReconciler) serviceDefinition(serviceName string, jobdef jobicov1.Job, e jobicov1.Event) (*core.Service, error) {
 	service := core.Service{
 		ObjectMeta: v1.ObjectMeta{
 			Name:      serviceName,
@@ -367,35 +326,13 @@ func (*JobReconciler) getServiceDefinition(serviceName string, jobdef jobicov1.J
 			Type:     core.ServiceTypeClusterIP,
 		},
 	}
-	return &service
+	if err := ctrl.SetControllerReference(&jobdef, &service, r.Scheme); err != nil {
+		return nil, err
+	}
+	return &service, nil
 }
 
-func (r *JobReconciler) reconcileDeployment(ctx context.Context, e jobicov1.Event, jobdef jobicov1.Job) error {
-	deploymentName := "deployment-" + e.Name
-	orig := new(apps.Deployment)
-	current := r.getDeploymentDefinition(deploymentName, jobdef, e)
-	if err := ctrl.SetControllerReference(&jobdef, current, r.Scheme); err != nil {
-		fmt.Printf("error: %v\n", err)
-		return err
-	}
-	exist, err := r.get(ctx, orig, deploymentName, jobdef.Namespace)
-	if err != nil {
-		return err
-	}
-	if exist {
-		b := reflect.DeepEqual(orig.Spec.Template.Spec.Containers[0].Env, orig.Spec.Template.Spec.Containers[0].Env)
-		if !b {
-			return r.Patch(ctx, current, client.StrategicMergeFrom(orig))
-		}
-		return nil
-	}
-	if err := r.Create(ctx, current); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (*JobReconciler) getDeploymentDefinition(deploymentName string, jobdef jobicov1.Job, e jobicov1.Event) *apps.Deployment {
+func (r *JobReconciler) deploymentDefinition(deploymentName string, jobdef jobicov1.Job, e jobicov1.Event) (*apps.Deployment, error) {
 	deployment := apps.Deployment{
 		ObjectMeta: v1.ObjectMeta{
 			Labels:    map[string]string{"owner": jobdef.Name, "event": e.Name},
@@ -462,14 +399,84 @@ func (*JobReconciler) getDeploymentDefinition(deploymentName string, jobdef jobi
 			},
 		},
 	}
-	return &deployment
+	if err := ctrl.SetControllerReference(&jobdef, &deployment, r.Scheme); err != nil {
+		return nil, err
+	}
+	return &deployment, nil
 }
 
-// SetupWithManager sets up the controller with the Manager.
-func (r *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&jobicov1.Job{}).
-		Complete(r)
+func (r *JobReconciler) jobDefinition(jobName string, jobdef jobicov1.Job, evt jobicov1.Event) (*batch.Job, error) {
+	job := batch.Job{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      jobName,
+			Namespace: jobdef.Namespace,
+		},
+		Spec: batch.JobSpec{
+			Template: core.PodTemplateSpec{
+				ObjectMeta: v1.ObjectMeta{
+					Labels: map[string]string{"app": "exec", "event": evt.Name, "owner": jobdef.Name},
+				},
+				Spec: core.PodSpec{
+					RestartPolicy: core.RestartPolicyOnFailure,
+					Volumes: []core.Volume{
+						{
+							Name: "local-persistent-storage",
+							VolumeSource: core.VolumeSource{
+								PersistentVolumeClaim: &core.PersistentVolumeClaimVolumeSource{
+									ClaimName: "test-pvc",
+								},
+							},
+						},
+					},
+					Containers: []core.Container{
+						{
+							Name:            "exec-" + evt.Name,
+							Image:           "exec:v1",
+							ImagePullPolicy: core.PullNever,
+							Env: []core.EnvVar{
+								{
+									Name:  "event",
+									Value: evt.Name,
+								},
+								{
+									Name:  "NATS_URL",
+									Value: "nats://queue:4222",
+								},
+								{
+									Name:  "wasm",
+									Value: evt.Wasm,
+								},
+								{
+									Name:  "dir",
+									Value: "/mnt/exec",
+								},
+							},
+							VolumeMounts: []core.VolumeMount{
+								{
+									Name:      "local-persistent-storage",
+									MountPath: "/mnt/exec",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	if err := ctrl.SetControllerReference(&jobdef, &job, r.Scheme); err != nil {
+		return nil, err
+	}
+
+	return &job, nil
+}
+
+func supportedEvent(evt string, evts []jobicov1.Event) bool {
+	for _, e := range evts {
+		if e.Name == evt {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *JobReconciler) get(ctx context.Context, o client.Object, name, namespace string) (bool, error) {
@@ -480,9 +487,12 @@ func (r *JobReconciler) get(ctx context.Context, o client.Object, name, namespac
 	err := r.Get(ctx, nn, o)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
+			// object does not exist
 			return false, nil
 		}
+		// error
 		return false, err
 	}
+	// object exist
 	return true, nil
 }
