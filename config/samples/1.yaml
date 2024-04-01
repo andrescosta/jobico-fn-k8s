@@ -27,7 +27,7 @@ metadata:
   name: job-for-ev1
 spec:
   events:
-    - name: ev1
-      wasm: echo1.wasm
+    - name: ev2
+      wasm: echo.wasm
       schema:
         key: schema-ev1

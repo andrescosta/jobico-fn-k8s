@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 
@@ -27,6 +28,7 @@ import (
 	net "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -62,6 +64,7 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	}
 
 	fmt.Printf("creating %s", jobdef.Name)
+	requeue := false
 	for _, e := range jobdef.Spec.Events {
 		if err := r.reconcileDeployment(ctx, e, jobdef); err != nil {
 			fmt.Printf("%v\n", err)
@@ -85,23 +88,82 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			if err != nil {
 				fmt.Printf("%v\n", err)
 				return ctrl.Result{}, err
-			} else {
-				return ctrl.Result{
-					Requeue: true,
-				}, nil
 			}
+			requeue = true
+		}
+	}
+	err := r.cleanUp(ctx, jobdef)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	return ctrl.Result{
+		Requeue: requeue,
+	}, nil
+}
+
+func (r *JobReconciler) cleanUp(ctx context.Context, jobdef jobicov1.Job) error {
+	var err error
+	labelSelector, err := labels.Parse("owner=" + jobdef.Name)
+	if err != nil {
+		return err
+	}
+	opts := &client.ListOptions{LabelSelector: labelSelector}
+
+	igs := net.IngressList{}
+	if err := r.List(ctx, &igs, opts); err != nil {
+		return err
+	}
+	for _, i := range igs.Items {
+		evt, ok := i.Labels["event"]
+		if !ok || !supportedEvent(evt, jobdef.Spec.Events) {
+			err = errors.Join(r.Delete(ctx, &i, &client.DeleteOptions{PropagationPolicy: ref.Of(v1.DeletePropagationBackground)}), err)
 		}
 	}
 
-	return ctrl.Result{}, nil
+	svcs := core.ServiceList{}
+	if err := r.List(ctx, &svcs, opts); err != nil {
+		return err
+	}
+	for _, s := range svcs.Items {
+		evt, ok := s.Labels["event"]
+		if !ok || !supportedEvent(evt, jobdef.Spec.Events) {
+			err = errors.Join(r.Delete(ctx, &s, &client.DeleteOptions{PropagationPolicy: ref.Of(v1.DeletePropagationBackground)}), err)
+		}
+	}
+
+	dpls := apps.DeploymentList{}
+	if err := r.List(ctx, &dpls, opts); err != nil {
+		return err
+	}
+	for _, d := range dpls.Items {
+		evt, ok := d.Labels["event"]
+		if !ok || !supportedEvent(evt, jobdef.Spec.Events) {
+			err = errors.Join(r.Delete(ctx, &d, &client.DeleteOptions{PropagationPolicy: ref.Of(v1.DeletePropagationBackground)}), err)
+		}
+	}
+
+	objs := batch.JobList{}
+	if err := r.List(ctx, &objs, opts); err != nil {
+		return err
+	}
+	for _, o := range objs.Items {
+		evt, ok := o.Labels["event"]
+		if !ok || !supportedEvent(evt, jobdef.Spec.Events) {
+			err = errors.Join(r.Delete(ctx, &o, &client.DeleteOptions{PropagationPolicy: ref.Of(v1.DeletePropagationBackground)}), err)
+		}
+	}
+	return nil
 }
 
-// Comp
-// Exist?
-// No o err => return
-// Yes
-// Delete old
-// Create new one
+func supportedEvent(evt string, evts []jobicov1.Event) bool {
+	for _, e := range evts {
+		if e.Name == evt {
+			return true
+		}
+	}
+	return false
+}
 
 func (r *JobReconciler) reconcileJob(ctx context.Context, evt jobicov1.Event, jobdef jobicov1.Job) (bool, error) {
 	jobName := "exec-" + evt.Name
@@ -112,7 +174,7 @@ func (r *JobReconciler) reconcileJob(ctx context.Context, evt jobicov1.Event, jo
 		return false, err
 	}
 	if exist {
-		if orig.DeletionTimestamp != nil {
+		if !orig.DeletionTimestamp.IsZero() {
 			return true, nil
 		}
 		b := reflect.DeepEqual(current.Spec.Template.Spec.Containers[0].Env, orig.Spec.Template.Spec.Containers[0].Env)
@@ -121,7 +183,7 @@ func (r *JobReconciler) reconcileJob(ctx context.Context, evt jobicov1.Event, jo
 		}
 		// the Job's template section is immutable and cannot be updated.
 		// We delete it and recreate it below.
-		err := r.Delete(ctx, orig)
+		err := r.Delete(ctx, orig, &client.DeleteOptions{PropagationPolicy: ref.Of(v1.DeletePropagationForeground)})
 		if err != nil {
 			return false, err
 		}
@@ -145,7 +207,7 @@ func (*JobReconciler) getJobDefinition(jobName string, jobdef jobicov1.Job, evt 
 		Spec: batch.JobSpec{
 			Template: core.PodTemplateSpec{
 				ObjectMeta: v1.ObjectMeta{
-					Labels: map[string]string{"app": "exec", "event": evt.Name},
+					Labels: map[string]string{"app": "exec", "event": evt.Name, "owner": jobdef.Name},
 				},
 				Spec: core.PodSpec{
 					RestartPolicy: core.RestartPolicyOnFailure,
@@ -227,6 +289,7 @@ func (r *JobReconciler) reconcileIngress(ctx context.Context, e jobicov1.Event, 
 func (*JobReconciler) getIngressDefinition(ingressName string, jobdef jobicov1.Job, e jobicov1.Event) *net.Ingress {
 	ingress := net.Ingress{
 		ObjectMeta: v1.ObjectMeta{
+			Labels:    map[string]string{"owner": jobdef.Name, "event": e.Name},
 			Name:      ingressName,
 			Namespace: jobdef.Namespace,
 			Annotations: map[string]string{
@@ -296,7 +359,7 @@ func (*JobReconciler) getServiceDefinition(serviceName string, jobdef jobicov1.J
 		ObjectMeta: v1.ObjectMeta{
 			Name:      serviceName,
 			Namespace: jobdef.Namespace,
-			Labels:    map[string]string{"app": "listener", "event": e.Name},
+			Labels:    map[string]string{"app": "listener", "event": e.Name, "owner": jobdef.Name},
 		},
 		Spec: core.ServiceSpec{
 			Selector: map[string]string{"app": "listener", "event": e.Name},
@@ -335,6 +398,7 @@ func (r *JobReconciler) reconcileDeployment(ctx context.Context, e jobicov1.Even
 func (*JobReconciler) getDeploymentDefinition(deploymentName string, jobdef jobicov1.Job, e jobicov1.Event) *apps.Deployment {
 	deployment := apps.Deployment{
 		ObjectMeta: v1.ObjectMeta{
+			Labels:    map[string]string{"owner": jobdef.Name, "event": e.Name},
 			Name:      deploymentName,
 			Namespace: jobdef.Namespace,
 		},

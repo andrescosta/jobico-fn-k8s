@@ -226,6 +226,10 @@ ingress:
 wait-ingress:
 	@kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=90s
 
+# Test
+.PHONY: test-op
+test-op: op wasm
+
 # Op
 .PHONY: op
 
