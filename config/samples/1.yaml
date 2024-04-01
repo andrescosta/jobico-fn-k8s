@@ -28,6 +28,6 @@ metadata:
 spec:
   events:
     - name: ev1
-      wasm: echo.wasm
+      wasm: echo1.wasm
       schema:
         key: schema-ev1
