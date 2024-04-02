@@ -11,7 +11,7 @@
 /bin
 /certs
 /backup_certs
-/dist
+**/dist
 /dist-local
 /config/local/webhook_conversion.yaml
 /config/local/webhook_mutating.yaml
