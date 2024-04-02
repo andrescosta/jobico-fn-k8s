@@ -1,24 +1,16 @@
 
-# Image URL to use all building/pushing image targets
 IMG ?= controller:latest
-# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.29.0
+CERTSDIR=./certs
 
-# Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
 else
 GOBIN=$(shell go env GOBIN)
 endif
 
-# CONTAINER_TOOL defines the container tool to be used for building images.
-# Be aware that the target commands are only tested with Docker which is
-# scaffolded by default. However, you might want to replace it to use other
-# tools. (i.e. podman)
 CONTAINER_TOOL ?= docker
 
-# Setting SHELL to bash allows bash commands to be executed by recipes.
-# Options are set to exit when a recipe line exits non-zero or a piped command fails.
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
@@ -46,7 +38,7 @@ help: ## Display this help.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd:ignoreUnexportedFields=true webhook paths="./..." output:crd:artifacts:config=config/crd/bases
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -64,7 +56,6 @@ vet: ## Run go vet against code.
 test: manifests generate fmt vet envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
-# Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
 .PHONY: test-e2e  # Run the e2e tests against a Kind k8s instance that is spun up.
 test-e2e:
 	go test ./test/e2e/ -v -ginkgo.v
@@ -87,23 +78,14 @@ build: manifests generate fmt vet ## Build manager binary.
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd/opjob/main.go
 
-# If you wish to build the manager image targeting other platforms you can use the --platform flag.
-# (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
-# More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${IMG} .
+	$(CONTAINER_TOOL) build -t ${IMG} -f docker/dockerfile.op .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
 
-# PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
-# architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
-# - be able to use docker buildx. More info: https://docs.docker.com/build/buildx/
-# - have enabled BuildKit. More info: https://docs.docker.com/develop/develop-images/build_enhancements/
-# - be able to push the image to your registry (i.e. if you do not set a valid value via IMG=<myregistry/image:<tag>> then the export will fail)
-# To adequately provide solutions that are compatible with multiple platforms, you should consider using this option.
 PLATFORMS ?= linux/amd64
 #linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
 .PHONY: docker-buildx
@@ -112,7 +94,7 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' docker/dockerfile.op > Dockerfile.cross
 	- $(CONTAINER_TOOL) buildx create --name project-v3-builder
 	$(CONTAINER_TOOL) buildx use project-v3-builder
-	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
+	- $(CONTAINER_TOOL) buildx build --load --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
 	- $(CONTAINER_TOOL) buildx rm project-v3-builder
 	rm Dockerfile.cross
 
@@ -125,6 +107,16 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 	echo "---" >> dist/install.yaml  # Add a document separator before appending
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default >> dist/install.yaml
+
+.PHONY: build-installer-local
+build-installer-local: kustomize
+	mkdir -p dist-local
+	@if [ -d "config/crd" ]; then \
+		$(KUSTOMIZE) build config/crd > dist-local/install.yaml; \
+	fi
+	echo "---" >> dist-local/install.yaml
+	$(KUSTOMIZE) build config/local >> dist-local/install.yaml
+
 
 ##@ Deployment
 
@@ -148,6 +140,133 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+
+.PHONY: deploy-local
+deploy-local: manifests kustomize 
+	$(KUSTOMIZE) build config/local | $(KUBECTL) apply -f -
+
+.PHONY: undeploy-local
+undeploy-local: manifests kustomize 
+	$(KUSTOMIZE) build config/local | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+
+##@ Kind cluster
+.PHONY: kind kind-delete kind-cluster ingress dir storage nats
+
+kind: kind-cluster ingress dir storage nats cert-manager-install
+
+kind-delete:
+	@kind delete cluster -n jobico
+
+kind-cluster:
+	@kind create cluster -n jobico --config ./config/cluster/cluster.yaml
+
+dir:
+	@docker exec -it jobico-control-plane mkdir -p /data/volumes/pv1/wasm chmod 777 /data/volumes/pv1/wasm
+
+storage:
+	@kubectl apply -f config/storage/storage.yaml
+
+nats:
+	@kubectl apply -f config/nats/cluster.yaml
+
+.PHONY: ingress wait-ingress
+
+ingress:
+	@kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+
+wait-ingress:
+	@kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=90s
+
+##@ Local test
+.PHONY: test-op local
+
+local: deploy-local test-op
+
+test-op: op wasm
+
+##@ Operator files
+.PHONY: op
+
+op: install images
+
+##@ Echo example
+.PHONY: echo wasm ex1 ex2
+
+echo: wasm ## Copy the echo wasm files to the cluster
+
+wasm:
+	@docker cp wasm/echo.wasm jobico-control-plane:/data/volumes/pv1/wasm
+
+ex1: ## Deploy the sample Job "ex1"
+	@kubectl apply -f config/samples/1.yaml
+
+ex2: ## Deploy the sample Job "ex2"
+	@kubectl apply -f config/samples/2.yaml
+
+del-ex1: ## Undeploy the sample Job "ex1"
+	@kubectl delete -f config/samples/1.yaml
+
+del-ex2: ## Undeploy the sample Job "ex2"
+	@kubectl delete -f config/samples/2.yaml
+
+##@ Images
+.PHONY: load-image-listener compile-image-listener load-image-exec compile-image-exec listener exec images cert-manager-install load-controller
+
+images: listener exec
+
+listener: compile-image-listener load-image-listener
+
+compile-image-listener: 
+	 docker build -t listener:v1 -f ./docker/dockerfile.listener .
+
+load-image-listener: 
+	kind load docker-image listener:v1 -n jobico
+
+load-controller: 
+	kind load docker-image controller:latest -n jobico
+
+exec: compile-image-exec load-image-exec
+
+compile-image-exec: 
+	 docker build -t exec:v1 -f ./docker/dockerfile.exec .
+
+load-image-exec:
+	kind load docker-image exec:v1 -n jobico
+
+##@ Cert manager
+.PHONY: cert-manager-install
+
+cert-manager-install:
+	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.4/cert-manager.yaml
+
+##@ Local certs
+.PHONY: gen-certs new-certs 
+
+new-certs: gen-certs gen-cfg-webhook
+
+gen-certs:
+	@export CAROOT=$(CERTSDIR);mkcert -cert-file=$(CERTSDIR)/tls.crt -key-file=$(CERTSDIR)/tls.key host.docker.internal 172.17.0.1
+
+gen-ca:
+	@mkdir -p $(CERTSDIR)
+	@export CAROOT=$(CERTSDIR); mkcert -install
+
+##@ Webhook local configs
+.PHONY: gen-cfg-webhook gen-cfg-validating gen-cfg-mutating gen-cfg-converting
+
+gen-cfg-webhook: gen-cfg-validating gen-cfg-mutating gen-cfg-converting
+
+gen-cfg-validating:
+	@key_base64=$$(cat certs/rootCA.pem | base64 -w 0);\
+	sed "s|<key>|$$key_base64|g" config/local/webhook_validating.yaml.tmpl > config/local/webhook_validating.yaml
+
+gen-cfg-mutating:
+	@key_base64=$$(cat certs/rootCA.pem | base64 -w 0);\
+	sed "s|<key>|$$key_base64|g" config/local/webhook_mutating.yaml.tmpl > config/local/webhook_mutating.yaml
+
+gen-cfg-converting:
+	@key_base64=$$(cat certs/rootCA.pem | base64 -w 0);\
+	sed "s|<key>|$$key_base64|g" config/local/webhook_conversion.yaml.tmpl > config/local/webhook_conversion.yaml
 
 ##@ Dependencies
 
@@ -189,10 +308,6 @@ golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/cmd/golangci-lint,${GOLANGCI_LINT_VERSION})
 
-# go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
-# $1 - target path with name of binary (ideally with version)
-# $2 - package url which can be installed
-# $3 - specific version of package
 define go-install-tool
 @[ -f $(1) ] || { \
 set -e; \
@@ -203,69 +318,3 @@ mv "$$(echo "$(1)" | sed "s/-$(3)$$//")" $(1) ;\
 }
 endef
 
-## Kind
-.PHONY: kind kind-delete kind-cluster ingress dir storage nats
-
-kind: kind-cluster ingress dir storage nats
-
-kind-delete:
-	@kind delete cluster -n jobico
-
-kind-cluster:
-	@kind create cluster -n jobico --config ./config/cluster/cluster.yaml
-
-dir:
-	@docker exec -it jobico-control-plane mkdir -p /data/volumes/pv1/wasm chmod 777 /data/volumes/pv1/wasm
-
-storage:
-	@kubectl apply -f config/storage/storage.yaml
-
-nats:
-	@kubectl apply -f config/nats/cluster.yaml
-
-.PHONY: ingress wait-ingress
-
-ingress:
-	@kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
-
-wait-ingress:
-	@kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=90s
-
-# Op
-.PHONY: op
-
-op: manifests install images
-
-# Echo example
-.PHONY: echo wasm ex1 ex2
-
-echo: wasm
-
-wasm:
-	@docker cp wasm/echo.wasm jobico-control-plane:/data/volumes/pv1/wasm
-
-ex1:
-	@kubectl apply -f config/samples/1.yaml
-
-ex2:
-	@kubectl apply -f config/samples/2.yaml
-## Images
-.PHONY: load-image-listener compile-image-listener load-image-exec compile-image-exec listener exec images
-
-images: listener exec
-
-listener: compile-image-listener load-image-listener
-
-compile-image-listener: 
-	 docker build -t listener:v1 -f ./docker/dockerfile.listener .
-
-load-image-listener: 
-	kind load docker-image listener:v1 -n jobico
-
-exec: compile-image-exec load-image-exec
-
-compile-image-exec: 
-	 docker build -t exec:v1 -f ./docker/dockerfile.exec .
-
-load-image-exec:
-	kind load docker-image exec:v1 -n jobico

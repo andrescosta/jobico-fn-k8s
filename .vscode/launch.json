@@ -13,6 +13,17 @@
             "args": [
                 "ev1"
             ]
+        },
+        {
+            "name": "Launch Op",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceFolder}/cmd/opjob/main.go",
+            "args": [
+                "--cert-dir=../../certs",
+                "--leader-elect=false"
+            ]
         }
     ]
 }

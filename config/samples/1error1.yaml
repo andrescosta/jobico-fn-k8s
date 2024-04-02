@@ -1,0 +1,9 @@
+apiVersion: jobico.coeux.dev/v1
+kind: Job
+metadata:
+  name: job-for-ev1-err
+spec:
+  events:
+    - name: ev1
+      schema:
+        key: schema-ev1

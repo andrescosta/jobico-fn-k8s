@@ -57,6 +57,7 @@ func main() {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
+	var certDir string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
@@ -66,6 +67,8 @@ func main() {
 		"If set the metrics endpoint is served securely")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	flag.StringVar(&certDir, "cert-dir", "",
+		"If set, certs as dir used.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -90,9 +93,13 @@ func main() {
 		tlsOpts = append(tlsOpts, disableHTTP2)
 	}
 
-	webhookServer := webhook.NewServer(webhook.Options{
+	opt := webhook.Options{
 		TLSOpts: tlsOpts,
-	})
+	}
+	if len(certDir) > 0 {
+		opt.CertDir = certDir
+	}
+	webhookServer := webhook.NewServer(opt)
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
@@ -127,6 +134,10 @@ func main() {
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Job")
+		os.Exit(1)
+	}
+	if err = jobicov1.NewJob(mgr.GetClient()).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "Job")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder
