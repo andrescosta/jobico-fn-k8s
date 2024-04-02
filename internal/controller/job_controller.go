@@ -50,10 +50,10 @@ type JobReconciler struct {
 //+kubebuilder:rbac:groups=jobico.coeux.dev,resources=jobs,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=jobico.coeux.dev,resources=jobs/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=jobico.coeux.dev,resources=jobs/finalizers,verbs=update
-//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;update;patch;delete
-//+kubebuilder:rbac:groups="",resources=services,verbs=create;update;patch;delete
-//+kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=create;update;patch;delete
-//+kubebuilder:rbac:groups=batch,resources=jobs,verbs=create;update;patch;delete
+//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;update;patch;delete;list;watch
+//+kubebuilder:rbac:groups="",resources=services,verbs=create;update;patch;delete;list;watch
+//+kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=create;update;patch;delete;list;watch
+//+kubebuilder:rbac:groups=batch,resources=jobs,verbs=create;update;patch;delete;list;watch
 
 func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
