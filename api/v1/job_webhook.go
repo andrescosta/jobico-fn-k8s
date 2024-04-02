@@ -18,6 +18,7 @@ package v1
 
 import (
 	"context"
+	"fmt"
 
 	net "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -73,42 +74,18 @@ func (r *Job) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
 func (r *Job) ValidateDelete() (admission.Warnings, error) {
 	joblog.Info("validate delete", "name", r.Name)
-
 	// TODO:
 	// The queue is empty
 	return nil, nil
 }
 
 func (r *Job) validate() (admission.Warnings, error) {
-	var allErrors field.ErrorList
-	if len(r.Spec.Events) == 0 {
-		allErrors = append(allErrors, field.Required(field.NewPath("events[]"), ""))
-	}
-	if len(r.ObjectMeta.Name) > validationutils.DNS1035LabelMaxLength-24 {
-		allErrors = append(allErrors, field.Invalid(field.NewPath("metadata").Child("name"), r.Name, "must be no more than 35 characters"))
-	}
+	allErrors := r.validateJob()
 	for _, e := range r.Spec.Events {
-		if e.Name == "" {
-			allErrors = append(allErrors, field.Required(field.NewPath("events[]").Child("name"), ""))
-		}
-		if e.Wasm == "" {
-			allErrors = append(allErrors, field.Required(field.NewPath("events[]").Child("wasm"), ""))
-		}
-		if e.Schema.Key == "" {
-			allErrors = append(allErrors, field.Required(field.NewPath("events[]").Child("key"), ""))
-		}
-		labelSelector, err := labels.Parse("event=" + e.Name)
+		allErrors = append(allErrors, r.validateEvent(e)...)
+		err := r.validateIfEventExists(e)
 		if err != nil {
-			return nil, err
-		}
-		opts := &client.ListOptions{LabelSelector: labelSelector}
-
-		igs := net.IngressList{}
-		if err := r.List(context.Background(), &igs, opts); err != nil {
-			return nil, err
-		}
-		if len(igs.Items) > 0 {
-			allErrors = append(allErrors, field.Invalid(field.NewPath("events[]").Child("name"), e.Name,"A listener already exists for the event."))
+			allErrors = append(allErrors, err)
 		}
 	}
 
@@ -118,4 +95,47 @@ func (r *Job) validate() (admission.Warnings, error) {
 			r.Name, allErrors)
 	}
 	return nil, nil
+}
+
+func (r *Job) validateJob() field.ErrorList {
+	var allErrors field.ErrorList
+	if len(r.Spec.Events) == 0 {
+		allErrors = append(allErrors, field.Required(field.NewPath("events[]"), ""))
+	}
+	if len(r.ObjectMeta.Name) > validationutils.DNS1035LabelMaxLength-24 {
+		allErrors = append(allErrors, field.Invalid(field.NewPath("metadata").Child("name"), r.Name, "must be no more than 35 characters"))
+	}
+	return allErrors
+}
+
+func (*Job) validateEvent(e Event) field.ErrorList {
+	var allErrors field.ErrorList
+	if e.Name == "" {
+		allErrors = append(allErrors, field.Required(field.NewPath("events[]").Child("name"), ""))
+	}
+	if e.Wasm == "" {
+		allErrors = append(allErrors, field.Required(field.NewPath("events[]").Child("wasm"), ""))
+	}
+	if e.Schema.Key == "" {
+		allErrors = append(allErrors, field.Required(field.NewPath("events[]").Child("key"), ""))
+	}
+	return allErrors
+}
+
+func (r *Job) validateIfEventExists(evt Event) *field.Error {
+	expr := fmt.Sprintf("event=%s, owner!=%s", evt.Name, r.Name)
+	labelSelector, err := labels.Parse(expr)
+	if err != nil {
+		return field.InternalError(field.NewPath("events[]").Child("name"), err)
+	}
+	opts := &client.ListOptions{LabelSelector: labelSelector}
+
+	igs := net.IngressList{}
+	if err := r.List(context.Background(), &igs, opts); err != nil {
+		return field.InternalError(field.NewPath("events[]").Child("name"), err)
+	}
+	if len(igs.Items) > 0 {
+		return field.Invalid(field.NewPath("events[]").Child("name"), evt.Name, "A listener already exists for the event.")
+	}
+	return nil
 }

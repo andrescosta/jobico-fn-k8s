@@ -136,13 +136,11 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Job")
 		os.Exit(1)
 	}
-	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
-		if err = (&jobicov1.Job{
-			Client: mgr.GetClient(),
-		}).SetupWebhookWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create webhook", "webhook", "Job")
-			os.Exit(1)
-		}
+	if err = (&jobicov1.Job{
+		Client: mgr.GetClient(),
+	}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "Job")
+		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder
 

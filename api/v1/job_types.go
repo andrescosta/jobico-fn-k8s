@@ -46,7 +46,7 @@ type JobStatus struct {
 
 // Job is the Schema for the jobs API
 type Job struct {
-	client.Client
+	client.Client     `json:"-"`
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
