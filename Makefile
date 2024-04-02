@@ -1,6 +1,7 @@
 
 IMG ?= controller:latest
 ENVTEST_K8S_VERSION = 1.29.0
+CERTSDIR=./certs
 
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
@@ -37,7 +38,7 @@ help: ## Display this help.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd:ignoreUnexportedFields=true webhook paths="./..." output:crd:artifacts:config=config/crd/bases
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -79,7 +80,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${IMG} .
+	$(CONTAINER_TOOL) build -t ${IMG} -f docker/dockerfile.op .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
@@ -148,6 +149,125 @@ deploy-local: manifests kustomize
 undeploy-local: manifests kustomize 
 	$(KUSTOMIZE) build config/local | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
+##@ Kind cluster
+.PHONY: kind kind-delete kind-cluster ingress dir storage nats
+
+kind: kind-cluster ingress dir storage nats cert-manager-install
+
+kind-delete:
+	@kind delete cluster -n jobico
+
+kind-cluster:
+	@kind create cluster -n jobico --config ./config/cluster/cluster.yaml
+
+dir:
+	@docker exec -it jobico-control-plane mkdir -p /data/volumes/pv1/wasm chmod 777 /data/volumes/pv1/wasm
+
+storage:
+	@kubectl apply -f config/storage/storage.yaml
+
+nats:
+	@kubectl apply -f config/nats/cluster.yaml
+
+.PHONY: ingress wait-ingress
+
+ingress:
+	@kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+
+wait-ingress:
+	@kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=90s
+
+##@ Local test
+.PHONY: test-op local
+
+local: deploy-local test-op
+
+test-op: op wasm
+
+##@ Operator files
+.PHONY: op
+
+op: install images
+
+##@ Echo example
+.PHONY: echo wasm ex1 ex2
+
+echo: wasm ## Copy the echo wasm files to the cluster
+
+wasm:
+	@docker cp wasm/echo.wasm jobico-control-plane:/data/volumes/pv1/wasm
+
+ex1: ## Deploy the sample Job "ex1"
+	@kubectl apply -f config/samples/1.yaml
+
+ex2: ## Deploy the sample Job "ex2"
+	@kubectl apply -f config/samples/2.yaml
+
+del-ex1: ## Undeploy the sample Job "ex1"
+	@kubectl delete -f config/samples/1.yaml
+
+del-ex2: ## Undeploy the sample Job "ex2"
+	@kubectl delete -f config/samples/2.yaml
+
+##@ Images
+.PHONY: load-image-listener compile-image-listener load-image-exec compile-image-exec listener exec images cert-manager-install load-controller
+
+images: listener exec
+
+listener: compile-image-listener load-image-listener
+
+compile-image-listener: 
+	 docker build -t listener:v1 -f ./docker/dockerfile.listener .
+
+load-image-listener: 
+	kind load docker-image listener:v1 -n jobico
+
+load-controller: 
+	kind load docker-image controller:latest -n jobico
+
+exec: compile-image-exec load-image-exec
+
+compile-image-exec: 
+	 docker build -t exec:v1 -f ./docker/dockerfile.exec .
+
+load-image-exec:
+	kind load docker-image exec:v1 -n jobico
+
+##@ Cert manager
+.PHONY: cert-manager-install
+
+cert-manager-install:
+	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.4/cert-manager.yaml
+
+##@ Local certs
+.PHONY: gen-certs new-certs 
+
+new-certs: gen-certs gen-cfg-webhook
+
+gen-certs:
+	@export CAROOT=$(CERTSDIR);mkcert -cert-file=$(CERTSDIR)/tls.crt -key-file=$(CERTSDIR)/tls.key host.docker.internal 172.17.0.1
+
+gen-ca:
+	@mkdir -p $(CERTSDIR)
+	@export CAROOT=$(CERTSDIR); mkcert -install
+
+##@ Webhook local configs
+.PHONY: gen-cfg-webhook gen-cfg-validating gen-cfg-mutating gen-cfg-converting
+
+gen-cfg-webhook: gen-cfg-validating gen-cfg-mutating gen-cfg-converting
+
+gen-cfg-validating:
+	@key_base64=$$(cat certs/rootCA.pem | base64 -w 0);\
+	sed "s|<key>|$$key_base64|g" config/local/webhook_validating.yaml.tmpl > config/local/webhook_validating.yaml
+
+gen-cfg-mutating:
+	@key_base64=$$(cat certs/rootCA.pem | base64 -w 0);\
+	sed "s|<key>|$$key_base64|g" config/local/webhook_mutating.yaml.tmpl > config/local/webhook_mutating.yaml
+
+gen-cfg-converting:
+	@key_base64=$$(cat certs/rootCA.pem | base64 -w 0);\
+	sed "s|<key>|$$key_base64|g" config/local/webhook_conversion.yaml.tmpl > config/local/webhook_conversion.yaml
+
 ##@ Dependencies
 
 ## Location to install dependencies to
@@ -198,119 +318,3 @@ mv "$$(echo "$(1)" | sed "s/-$(3)$$//")" $(1) ;\
 }
 endef
 
-## Kind
-.PHONY: kind kind-delete kind-cluster ingress dir storage nats
-
-kind: kind-cluster ingress dir storage nats cert-manager-install
-
-kind-delete:
-	@kind delete cluster -n jobico
-
-kind-cluster:
-	@kind create cluster -n jobico --config ./config/cluster/cluster.yaml
-
-dir:
-	@docker exec -it jobico-control-plane mkdir -p /data/volumes/pv1/wasm chmod 777 /data/volumes/pv1/wasm
-
-storage:
-	@kubectl apply -f config/storage/storage.yaml
-
-nats:
-	@kubectl apply -f config/nats/cluster.yaml
-
-.PHONY: ingress wait-ingress
-
-ingress:
-	@kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
-
-wait-ingress:
-	@kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=90s
-
-# Test
-.PHONY: test-op
-test-op: op wasm
-
-# Op
-.PHONY: op
-
-op: manifests install images
-
-# Echo example
-.PHONY: echo wasm ex1 ex2
-
-echo: wasm
-
-wasm:
-	@docker cp wasm/echo.wasm jobico-control-plane:/data/volumes/pv1/wasm
-
-ex1:
-	@kubectl apply -f config/samples/1.yaml
-
-ex2:
-	@kubectl apply -f config/samples/2.yaml
-
-del-ex1:
-	@kubectl delete -f config/samples/1.yaml
-
-del-ex2:
-	@kubectl delete -f config/samples/2.yaml
-
-## Images
-.PHONY: load-image-listener compile-image-listener load-image-exec compile-image-exec listener exec images cert-manager-install load-controller
-
-images: listener exec
-
-listener: compile-image-listener load-image-listener
-
-compile-image-listener: 
-	 docker build -t listener:v1 -f ./docker/dockerfile.listener .
-
-load-image-listener: 
-	kind load docker-image listener:v1 -n jobico
-
-load-controller: 
-	kind load docker-image controller:latest -n jobico
-
-exec: compile-image-exec load-image-exec
-
-compile-image-exec: 
-	 docker build -t exec:v1 -f ./docker/dockerfile.exec .
-
-load-image-exec:
-	kind load docker-image exec:v1 -n jobico
-
-# Cert manager
-.PHONY: cert-manager-install
-
-cert-manager-install:
-	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.4/cert-manager.yaml
-
-# Local certs
-CERTSDIR=./certs
-.PHONY: gen-certs new-certs 
-
-new-certs: gen-certs gen-cfg-webhook
-
-gen-certs:
-	@export CAROOT=$(CERTSDIR);mkcert -cert-file=$(CERTSDIR)/tls.crt -key-file=$(CERTSDIR)/tls.key host.docker.internal 172.17.0.1
-
-# files
-.PHONY: gen-cfg-webhook gen-cfg-validating gen-cfg-mutating gen-cfg-converting
-
-gen-cfg-webhook: gen-cfg-validating gen-cfg-mutating gen-cfg-converting
-
-gen-cfg-validating:
-	@key_base64=$$(cat certs/rootCA.pem | base64 -w 0);\
-	sed "s|<key>|$$key_base64|g" config/local/webhook_validating.yaml.tmpl > config/local/webhook_validating.yaml
-
-gen-cfg-mutating:
-	@key_base64=$$(cat certs/rootCA.pem | base64 -w 0);\
-	sed "s|<key>|$$key_base64|g" config/local/webhook_mutating.yaml.tmpl > config/local/webhook_mutating.yaml
-
-gen-cfg-converting:
-	@key_base64=$$(cat certs/rootCA.pem | base64 -w 0);\
-	sed "s|<key>|$$key_base64|g" config/local/webhook_conversion.yaml.tmpl > config/local/webhook_conversion.yaml
-
-gen-ca:
-	@mkdir -p $(CERTSDIR)
-	@export CAROOT=$(CERTSDIR); mkcert -install

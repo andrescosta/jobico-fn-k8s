@@ -27,12 +27,16 @@ import (
 
 // JobSpec defines the desired state of Job
 type JobSpec struct {
+	// +kubebuilder:validation:Required
 	Events []Event `json:"events,omitempty"`
 }
 
 type Event struct {
-	Name   string                      `json:"name"`
-	Wasm   string                      `json:"wasm,omitempty"`
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+	// +kubebuilder:validation:Required
+	Wasm string `json:"wasm,omitempty"`
+	// +kubebuilder:validation:Required
 	Schema corev1.ConfigMapKeySelector `json:"schema"`
 }
 
@@ -46,12 +50,31 @@ type JobStatus struct {
 
 // Job is the Schema for the jobs API
 type Job struct {
-	client.Client     `json:"-"`
+	client            *ClientWrapper
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	Spec   JobSpec   `json:"spec,omitempty"`
 	Status JobStatus `json:"status,omitempty"`
+}
+
+// +k8s:deepcopy-gen=false
+type ClientWrapper struct {
+	client.Client
+}
+
+func (c *ClientWrapper) DeepCopyInto(cc *ClientWrapper) {
+	cc.Client = c.Client
+}
+
+func (c *ClientWrapper) DeepCopy() *ClientWrapper {
+	return c
+}
+
+func NewJob(c client.Client) *Job {
+	return &Job{
+		client: &ClientWrapper{c},
+	}
 }
 
 //+kubebuilder:object:root=true

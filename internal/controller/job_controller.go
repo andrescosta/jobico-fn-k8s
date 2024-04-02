@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"strings"
 
 	apps "k8s.io/api/apps/v1"
 	batch "k8s.io/api/batch/v1"
@@ -37,8 +36,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/andrescosta/goico/pkg/collection"
+	"github.com/andrescosta/goico/pkg/ref"
 	jobicov1 "github.com/andrescosta/jobicok8s/api/v1"
-	"github.com/andrescosta/jobicok8s/internal/ref"
 )
 
 // JobReconciler reconciles a Job object
@@ -47,53 +47,70 @@ type JobReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-//+kubebuilder:rbac:groups=jobico.coeux.dev,resources=jobs,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=jobico.coeux.dev,resources=jobs/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=jobico.coeux.dev,resources=jobs/finalizers,verbs=update
-//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;update;patch;delete;list;watch
-//+kubebuilder:rbac:groups="",resources=services,verbs=create;update;patch;delete;list;watch
-//+kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=create;update;patch;delete;list;watch
-//+kubebuilder:rbac:groups=batch,resources=jobs,verbs=create;update;patch;delete;list;watch
+type ids struct {
+	Service    string
+	Deployment string
+	Job        string
+	Ingress    string
+}
 
+func newIds(e jobicov1.Event, jobdef jobicov1.Job) ids {
+	return ids{
+		Service:    fmt.Sprintf("%s-service-%s", jobdef.Name, e.Name),
+		Deployment: fmt.Sprintf("%s-deployment-%s", jobdef.Name, e.Name),
+		Job:        fmt.Sprintf("%s-exec-%s", jobdef.Name, e.Name),
+		Ingress:    fmt.Sprintf("%s-ingress-%s", jobdef.Name, e.Name),
+	}
+}
+
+// +kubebuilder:rbac:groups=jobico.coeux.dev,resources=jobs,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=jobico.coeux.dev,resources=jobs/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=jobico.coeux.dev,resources=jobs/finalizers,verbs=update
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;update;patch;delete;list;watch
+// +kubebuilder:rbac:groups="",resources=services,verbs=create;update;patch;delete;list;watch
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=create;update;patch;delete;list;watch
+// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=create;update;patch;delete;list;watch
 func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	logger := log.FromContext(ctx)
 
 	var jobdef jobicov1.Job
 	if err := r.Get(ctx, req.NamespacedName, &jobdef); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-
-	fmt.Printf("creating %s", jobdef.Name)
+	logger.Info("creating dependencies", "job", jobdef.Name)
 	requeue := false
 	for _, evt := range jobdef.Spec.Events {
+		i := newIds(evt, jobdef)
+
 		// Deployment
-		if err := r.reconcileDeployment(ctx, evt, jobdef); err != nil {
-			fmt.Printf("%v\n", err)
+		if err := r.reconcileDeployment(ctx, i, evt, jobdef); err != nil {
+			logger.Error(err, "Error while reconciling Deployments", "job", jobdef.Name)
 			return ctrl.Result{}, err
 		}
 
 		// Service
-		if err := r.reconcileService(ctx, evt, jobdef); err != nil {
-			fmt.Printf("%v\n", err)
+		if err := r.reconcileService(ctx, i, evt, jobdef); err != nil {
+			logger.Error(err, "Error while reconciling Services", "job", jobdef.Name)
 			return ctrl.Result{}, err
 		}
 
 		// Ingress
-		if err := r.reconcileIngress(ctx, evt, jobdef); err != nil {
-			fmt.Printf("%v\n", err)
+		if err := r.reconcileIngress(ctx, i, evt, jobdef); err != nil {
+			logger.Error(err, "Error while reconciling Ingresses", "job", jobdef.Name)
 			return ctrl.Result{}, err
 		}
 
 		// Job
 		var err error
-		requeue, err = r.reconcileJob(ctx, evt, jobdef)
+		requeue, err = r.reconcileJob(ctx, i, evt, jobdef)
 		if err != nil {
-			fmt.Printf("%v\n", err)
+			logger.Error(err, "Error while reconciling Services", "job", jobdef.Name)
 			return ctrl.Result{}, err
 		}
 	}
 	err := r.garbageCollect(ctx, jobdef)
 	if err != nil {
+		logger.Error(err, "Error during garbage collector phase.")
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{
@@ -111,14 +128,13 @@ func (r *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *JobReconciler) reconcileJob(ctx context.Context, evt jobicov1.Event, jobdef jobicov1.Job) (bool, error) {
-	jobName := fmt.Sprintf("%s-exec-%s", jobdef.Name, evt.Name)
-	current, err := r.jobDefinition(jobName, jobdef, evt)
+func (r *JobReconciler) reconcileJob(ctx context.Context, i ids, evt jobicov1.Event, jobdef jobicov1.Job) (bool, error) {
+	current, err := r.jobDefinition(i.Job, jobdef, evt)
 	if err != nil {
 		return false, err
 	}
 	orig := new(batch.Job)
-	exist, err := r.get(ctx, orig, jobName, jobdef.Namespace)
+	exist, err := r.get(ctx, orig, i.Job, jobdef.Namespace)
 	if err != nil {
 		return false, err
 	}
@@ -146,14 +162,13 @@ func (r *JobReconciler) reconcileJob(ctx context.Context, evt jobicov1.Event, jo
 	return false, nil
 }
 
-func (r *JobReconciler) reconcileIngress(ctx context.Context, e jobicov1.Event, jobdef jobicov1.Job) error {
-	ingressName := fmt.Sprintf("%s-ingress-%s", jobdef.Name, e.Name)
+func (r *JobReconciler) reconcileIngress(ctx context.Context, i ids, evt jobicov1.Event, jobdef jobicov1.Job) error {
 	orig := new(net.Ingress)
-	current, err := r.ingressDefinition(ingressName, jobdef, e)
+	current, err := r.ingressDefinition(i, jobdef, evt)
 	if err != nil {
 		return err
 	}
-	exist, err := r.get(ctx, orig, ingressName, jobdef.Namespace)
+	exist, err := r.get(ctx, orig, i.Ingress, jobdef.Namespace)
 	if err != nil {
 		return err
 	}
@@ -169,14 +184,13 @@ func (r *JobReconciler) reconcileIngress(ctx context.Context, e jobicov1.Event, 
 	return nil
 }
 
-func (r *JobReconciler) reconcileService(ctx context.Context, e jobicov1.Event, jobdef jobicov1.Job) error {
-	serviceName := fmt.Sprintf("%s-service-%s", jobdef.Name, e.Name)
-	current, err := r.serviceDefinition(serviceName, jobdef, e)
+func (r *JobReconciler) reconcileService(ctx context.Context, i ids, evt jobicov1.Event, jobdef jobicov1.Job) error {
+	current, err := r.serviceDefinition(i.Service, jobdef, evt)
 	if err != nil {
 		return err
 	}
 	orig := new(core.Service)
-	exist, err := r.get(ctx, orig, serviceName, jobdef.Namespace)
+	exist, err := r.get(ctx, orig, i.Service, jobdef.Namespace)
 	if err != nil {
 		return err
 	}
@@ -192,14 +206,13 @@ func (r *JobReconciler) reconcileService(ctx context.Context, e jobicov1.Event, 
 	return nil
 }
 
-func (r *JobReconciler) reconcileDeployment(ctx context.Context, evt jobicov1.Event, jobdef jobicov1.Job) error {
-	deploymentName := fmt.Sprintf("%s-deployment-%s", jobdef.Name, evt.Name)
+func (r *JobReconciler) reconcileDeployment(ctx context.Context, i ids, evt jobicov1.Event, jobdef jobicov1.Job) error {
 	orig := new(apps.Deployment)
-	current, err := r.deploymentDefinition(deploymentName, jobdef, evt)
+	current, err := r.deploymentDefinition(i.Deployment, jobdef, evt)
 	if err != nil {
 		return err
 	}
-	exist, err := r.get(ctx, orig, deploymentName, jobdef.Namespace)
+	exist, err := r.get(ctx, orig, i.Deployment, jobdef.Namespace)
 	if err != nil {
 		return err
 	}
@@ -215,20 +228,9 @@ func (r *JobReconciler) reconcileDeployment(ctx context.Context, evt jobicov1.Ev
 	return nil
 }
 
-func JoinOf[T any](t []T, sep string, fn func(T) string) string {
-	b := strings.Builder{}
-	for i, v := range t {
-		if i > 0 {
-			b.WriteString(sep)
-		}
-		b.WriteString(fn(v))
-	}
-	return b.String()
-}
-
 func (r *JobReconciler) garbageCollect(ctx context.Context, jobdef jobicov1.Job) error {
 	var err error
-	evs := JoinOf(jobdef.Spec.Events, ",", func(e jobicov1.Event) string { return e.Name })
+	evs := collection.JoinOf(jobdef.Spec.Events, ",", func(e jobicov1.Event) string { return e.Name })
 	expr := fmt.Sprintf("owner=%s, event notin(%s)", jobdef.Name, evs)
 	labelSelector, err := labels.Parse(expr)
 	if err != nil {
@@ -269,11 +271,11 @@ func (r *JobReconciler) garbageCollect(ctx context.Context, jobdef jobicov1.Job)
 	return nil
 }
 
-func (r *JobReconciler) ingressDefinition(ingressName string, jobdef jobicov1.Job, e jobicov1.Event) (*net.Ingress, error) {
+func (r *JobReconciler) ingressDefinition(i ids, jobdef jobicov1.Job, e jobicov1.Event) (*net.Ingress, error) {
 	ingress := net.Ingress{
 		ObjectMeta: v1.ObjectMeta{
 			Labels:    map[string]string{"owner": jobdef.Name, "event": e.Name},
-			Name:      ingressName,
+			Name:      i.Ingress,
 			Namespace: jobdef.Namespace,
 			Annotations: map[string]string{
 				"nginx.ingress.kubernetes.io/ssl-redirect": "true",
@@ -293,7 +295,7 @@ func (r *JobReconciler) ingressDefinition(ingressName string, jobdef jobicov1.Jo
 									PathType: ref.Of(net.PathType("Prefix")),
 									Backend: net.IngressBackend{
 										Service: &net.IngressServiceBackend{
-											Name: "listener-" + e.Name,
+											Name: i.Service,
 											Port: net.ServiceBackendPort{
 												Number: 8080,
 											},

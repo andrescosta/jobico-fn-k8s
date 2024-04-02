@@ -1,4 +1,4 @@
-curl http://listener/listener/ev1 -d '{
+curl http://listener/listener/$1 -d '{
     "data": [
        {
             "firstName": "Andres",

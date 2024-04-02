@@ -131,7 +131,7 @@ func (r *Job) validateIfEventExists(evt Event) *field.Error {
 	opts := &client.ListOptions{LabelSelector: labelSelector}
 
 	igs := net.IngressList{}
-	if err := r.List(context.Background(), &igs, opts); err != nil {
+	if err := r.client.List(context.Background(), &igs, opts); err != nil {
 		return field.InternalError(field.NewPath("events[]").Child("name"), err)
 	}
 	if len(igs.Items) > 0 {
