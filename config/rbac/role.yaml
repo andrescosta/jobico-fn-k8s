@@ -10,6 +10,7 @@ rules:
   - services
   verbs:
   - create
+  - delete
   - patch
   - update
 - apiGroups:
@@ -18,6 +19,7 @@ rules:
   - deployments
   verbs:
   - create
+  - delete
   - patch
   - update
 - apiGroups:
@@ -26,6 +28,7 @@ rules:
   - jobs
   verbs:
   - create
+  - delete
   - patch
   - update
 - apiGroups:
@@ -60,5 +63,6 @@ rules:
   - ingresses
   verbs:
   - create
+  - delete
   - patch
   - update
