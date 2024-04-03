@@ -3,6 +3,7 @@ namePrefix: j-
 resources:
 - ../crd
 - ../webhook
+- ../storage
 - namespace.yaml
 
 patchesJson6902:

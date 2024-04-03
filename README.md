@@ -3,6 +3,7 @@ This project delves into integrating Jobico with Kubernetes. Jobico is a platfor
 
 ## Description
 
+
 ## Getting Started
 
 ### Prerequisites

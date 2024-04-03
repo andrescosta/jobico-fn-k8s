@@ -10,6 +10,7 @@ resources:
 - ../manager
 - ../webhook
 - ../certmanager
+- ../storage
 #- ../prometheus
 
 patches:

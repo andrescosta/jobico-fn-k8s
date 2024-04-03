@@ -70,6 +70,7 @@ func newIds(e jobicov1.Event, jobdef jobicov1.Job) ids {
 // +kubebuilder:rbac:groups="",resources=services,verbs=create;update;patch;delete;list;watch
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=create;update;patch;delete;list;watch
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=create;update;patch;delete;list;watch
+
 func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
