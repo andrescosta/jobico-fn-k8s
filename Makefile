@@ -133,13 +133,16 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: deploy
-deploy: manifests kustomize images docker-build  load-controller ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+deploy: manifests kustomize docker-build  load-controller ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
 
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+
+.PHONY: deploy-all
+deploy-all: deploy images
 
 .PHONY: deploy-local
 deploy-local: manifests kustomize 
@@ -158,7 +161,7 @@ kind-delete:
 	@kind delete cluster -n jobico
 
 kind-cluster:
-	@kind create cluster -n jobico --config ./config/cluster/cluster.yaml
+	@kind create cluster -n jobico --config ./config/cluster/kind-cluster.yaml
 
 dir:
 	@docker exec -it jobico-control-plane mkdir -p /data/volumes/pv1/wasm chmod 777 /data/volumes/pv1/wasm
@@ -167,7 +170,7 @@ storage:
 	@kubectl apply -f config/storage/storage.yaml
 
 nats:
-	@kubectl apply -f config/nats/cluster.yaml
+	@kubectl apply -f config/nats/nats-cluster.yaml
 
 .PHONY: ingress wait-ingress
 
@@ -203,11 +206,14 @@ ex1: ## Deploy the sample Job "ex1"
 ex2: ## Deploy the sample Job "ex2"
 	@kubectl apply -f config/samples/2.yaml
 
-del-ex1: ## Undeploy the sample Job "ex1"
+ex1-delete: ## Undeploy the sample Job "ex1"
 	@kubectl delete -f config/samples/1.yaml
 
-del-ex2: ## Undeploy the sample Job "ex2"
+ex2-delete: ## Undeploy the sample Job "ex2"
 	@kubectl delete -f config/samples/2.yaml
+
+logs:
+	kubectl logs -f -l 'app=exec'
 
 ##@ Images
 .PHONY: load-image-listener compile-image-listener load-image-exec compile-image-exec listener exec images cert-manager-install load-controller
