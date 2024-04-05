@@ -5,7 +5,7 @@ go 1.21.4
 toolchain go1.22.1
 
 require (
-	github.com/andrescosta/goico v0.6.3
+	github.com/andrescosta/goico v0.6.4-0.20240405230101-bfbed1ab3112
 	github.com/nats-io/nats.go v1.34.0
 	github.com/onsi/ginkgo/v2 v2.14.0
 	github.com/onsi/gomega v1.30.0
@@ -57,7 +57,7 @@ require (
 	github.com/prometheus/procfs v0.13.0 // indirect
 	github.com/rs/zerolog v1.32.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
-	github.com/tetratelabs/wazero v1.6.0 // indirect
+	github.com/tetratelabs/wazero v1.7.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.26.0 // indirect
 	golang.org/x/crypto v0.21.0 // indirect

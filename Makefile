@@ -216,9 +216,9 @@ logs:
 	kubectl logs -f -l 'app=exec'
 
 ##@ Images
-.PHONY: load-image-listener compile-image-listener load-image-exec compile-image-exec listener exec images cert-manager-install load-controller
+.PHONY: load-image-listener compile-image-listener load-image-exec compile-image-exec listener exec images cert-manager-install load-controller execint load-image-execint compile-image-execint
 
-images: listener exec
+images: listener exec execint
 
 listener: compile-image-listener load-image-listener
 
@@ -238,6 +238,15 @@ compile-image-exec:
 
 load-image-exec:
 	kind load docker-image exec:v1 -n jobico
+
+execint: compile-image-execint load-image-execint
+
+compile-image-execint: 
+	 docker build -t execint:v1 -f ./docker/dockerfile.execint .
+
+load-image-execint:
+	kind load docker-image execint:v1 -n jobico
+
 
 ##@ Cert manager
 .PHONY: cert-manager-install
