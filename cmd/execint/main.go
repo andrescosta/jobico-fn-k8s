@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path"
 	"syscall"
 	"time"
 
@@ -64,7 +65,7 @@ func main() {
 	}
 
 	fmt.Println("created the stream")
-	cacheDir := dir + "/cache"
+	cacheDir := path.Join(dir, "/.cache")
 
 	runtime, err := wasm.NewRuntimeWithCompilationCache(cacheDir)
 	if err != nil {
@@ -72,19 +73,21 @@ func main() {
 		os.Exit(1)
 	}
 	defer runtime.Close(ctx)
-	wasmf, err := os.ReadFile(dir + "/python/python.wasm")
+
+	pywasm := path.Join(dir, "/python/python.wasm")
+	wasmf, err := os.ReadFile(pywasm)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error reading wasm binary: %v\n", err)
 		os.Exit(1)
 	}
 	mounts := []string{
-		dir + "/lib/python3.13:/usr/local/lib/python3.13:ro",
-		dir + "/sdk:/usr/local/lib/jobico:ro",
-		dir + "/prg:/prg",
+		path.Join(dir, "python/lib/python3.13") + ":/usr/local/lib/python3.13:ro",
+		path.Join(dir, "python/sdk") + ":/usr/local/lib/jobico:ro",
+		path.Join(dir, "python/prg") + ":/prg",
 	}
 	args := []string{
-		dir + "/python/python.wasm",
-		"prg/" + wasmFile,
+		pywasm,
+		"/prg/" + wasmFile,
 	}
 	buffIn := &bytes.Buffer{}
 	buffOut := &bytes.Buffer{}
@@ -93,6 +96,10 @@ func main() {
 	mod, err := wasm.NewIntModule(ctx, runtime, wasmf, log, mounts, args, e, buffIn, buffOut, buffErr)
 	if err != nil {
 		panic(err)
+	}
+	err = mod.Run(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error executing the module: %v\n", err)
 	}
 	defer mod.Close(ctx)
 loop:
@@ -112,9 +119,14 @@ loop:
 					buffErr.Reset()
 					buffIn.Reset()
 					buffOut.Reset()
+					_, err := buffIn.Write(msg.Data())
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "error writting data: %v\n", err)
+						continue
+					}
 					err = mod.Run(ctx)
 					if err != nil {
-						fmt.Fprintf(os.Stderr, "error instantiating the module: %v\n", err)
+						fmt.Fprintf(os.Stderr, "error executing the module: %v\n", err)
 						fmt.Printf("Dump Error: %s\n", buffErr.String())
 						fmt.Printf("Dump Std out: %s\n", buffOut.String())
 						continue

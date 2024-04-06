@@ -5,7 +5,7 @@ go 1.21.4
 toolchain go1.22.1
 
 require (
-	github.com/andrescosta/goico v0.6.4-0.20240405230101-bfbed1ab3112
+	github.com/andrescosta/goico v0.6.4-0.20240406140435-5241a4613435
 	github.com/nats-io/nats.go v1.34.0
 	github.com/onsi/ginkgo/v2 v2.14.0
 	github.com/onsi/gomega v1.30.0

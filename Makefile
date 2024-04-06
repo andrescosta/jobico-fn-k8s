@@ -242,11 +242,20 @@ load-image-exec:
 execint: compile-image-execint load-image-execint
 
 compile-image-execint: 
-	 docker build -t execint:v1 -f ./docker/dockerfile.execint .
+	docker build -t execint:v1 -f ./docker/dockerfile.execint .
+
+compile-image-execint-nocache: 
+	docker build --no-cache -t execint:v1 -f ./docker/dockerfile.execint .
 
 load-image-execint:
 	kind load docker-image execint:v1 -n jobico
 
+prep:
+	docker exec -it jobico-control-plane mkdir -p /data/volumes/pv1/python
+	docker exec -it jobico-control-plane curl -o /data/volumes/pv1/python/python-3.13.0a5-wasi_sdk-20.zip -LJ https://github.com/brettcannon/cpython-wasi-build/releases/download/v3.13.0a5/python-3.13.0a5-wasi_sdk-20.zip 
+	docker exec -it jobico-control-plane python3 -m zipfile -e /data/volumes/pv1/python/python-3.13.0a5-wasi_sdk-20.zip /data/volumes/pv1/python/
+	docker exec -it jobico-control-plane rm /data/volumes/pv1/python/python-3.13.0a5-wasi_sdk-20.zip
+	docker cp sdk/ jobico-control-plane:/data/volumes/pv1/python
 
 ##@ Cert manager
 .PHONY: cert-manager-install

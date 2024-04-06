@@ -31,12 +31,14 @@ type JobSpec struct {
 	Events []Event `json:"events"`
 }
 
+// +kubebuilder:validation:XValidation:message="script or wasm must be specified", rule=((self.script!="" && self.wasm=="") || (self.script=="" && self.wasm!=""))
 type Event struct {
 	// +kubebuilder:validation:MinLength:=1
 	Name string `json:"name"`
 
-	// +kubebuilder:validation:MinLength:=1
 	Wasm string `json:"wasm"`
+
+	Script string `json:"script"`
 
 	// +kubebuilder:validation:XValidation:message="schema.key or schema.name must be specified", rule=(self.key!="" || self.name!="")
 	Schema corev1.ConfigMapKeySelector `json:"schema"`
