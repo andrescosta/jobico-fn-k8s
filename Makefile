@@ -80,7 +80,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${IMG} -f docker/dockerfile.op .
+	$(CONTAINER_TOOL) build --no-cache -t ${IMG} -f docker/dockerfile.op .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
@@ -170,7 +170,8 @@ storage:
 	@kubectl apply -f config/storage/storage.yaml
 
 nats:
-	@kubectl apply -f config/nats/nats-cluster.yaml
+	helm install -f ./config/nats/conf.yaml nats nats/nats
+	#@kubectl apply -f config/nats/nats-cluster.yaml
 
 .PHONY: ingress wait-ingress
 
@@ -250,12 +251,19 @@ compile-image-execint-nocache:
 load-image-execint:
 	kind load docker-image execint:v1 -n jobico
 
-prep:
+prep-python:
 	docker exec -it jobico-control-plane mkdir -p /data/volumes/pv1/python
 	docker exec -it jobico-control-plane curl -o /data/volumes/pv1/python/python-3.13.0a5-wasi_sdk-20.zip -LJ https://github.com/brettcannon/cpython-wasi-build/releases/download/v3.13.0a5/python-3.13.0a5-wasi_sdk-20.zip 
 	docker exec -it jobico-control-plane python3 -m zipfile -e /data/volumes/pv1/python/python-3.13.0a5-wasi_sdk-20.zip /data/volumes/pv1/python/
 	docker exec -it jobico-control-plane rm /data/volumes/pv1/python/python-3.13.0a5-wasi_sdk-20.zip
-	docker cp sdk/ jobico-control-plane:/data/volumes/pv1/python
+#docker cp sdk/ jobico-control-plane:/data/volumes/pv1/python
+
+
+# https://github.com/mozilla-spidermonkey/sm-wasi-demo/blob/main/data.json
+prep-js:
+	docker exec jobico-control-plane mkdir -p /data/volumes/pv1/js
+	docker exec jobico-control-plane curl -o /data/volumes/pv1/js/js.wasm -LJ https://firefoxci.taskcluster-artifacts.net/OWBTW-rCTqGtqtvO4rpJkA/0/public/build/js.wasm
+
 
 ##@ Cert manager
 .PHONY: cert-manager-install

@@ -67,8 +67,9 @@ func main() {
 	fmt.Printf("started with event %s and schema %s\n", event, schema)
 	// Nats
 	url := env.GetString("NATS_URL", "nats://queue:4222")
-	fmt.Printf("Connecting Nats with %s\n", url)
+	fmt.Printf("v1: Connecting Nats with %s\n", url)
 	nc, err := nats.Connect(url)
+	fmt.Println("connected.")
 	if err != nil {
 		panic(err)
 	}
@@ -84,6 +85,7 @@ func main() {
 	}
 
 	// JetStream API uses context for timeouts and cancellation.
+	fmt.Printf("about to create the stream.")
 	_, err = js.CreateOrUpdateStream(context.Background(), cfg)
 	if err != nil {
 		panic(err)

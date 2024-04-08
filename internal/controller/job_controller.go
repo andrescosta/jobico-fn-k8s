@@ -427,7 +427,7 @@ func (r *JobReconciler) deploymentDefinition(deploymentName string, jobdef jobic
 								},
 								{
 									Name:  "NATS_URL",
-									Value: "nats://queue:4222",
+									Value: "nats://nats:4222",
 								},
 								{
 									Name:  "schema",
@@ -487,7 +487,7 @@ func (r *JobReconciler) jobDefinition(jobName string, jobdef jobicov1.Job, evt j
 								},
 								{
 									Name:  "NATS_URL",
-									Value: "nats://queue:4222",
+									Value: "nats://nats:4222",
 								},
 								{
 									Name:  "wasm",
@@ -551,10 +551,10 @@ func (r *JobReconciler) jobDefinitionInt(jobName string, jobdef jobicov1.Job, ev
 								},
 								{
 									Name:  "NATS_URL",
-									Value: "nats://queue:4222",
+									Value: "nats://nats:4222",
 								},
 								{
-									Name:  "py",
+									Name:  "script",
 									Value: evt.Script,
 								},
 								{
