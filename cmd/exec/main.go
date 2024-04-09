@@ -62,18 +62,12 @@ func main() {
 
 	fmt.Println("created the stream")
 	cacheDir := dir + "/cache"
-	wasmRuntime, err := wasm.NewRuntimeWithCompilationCache(cacheDir)
-	if err != nil {
-		panic(err)
-	}
-	defer func() { _ = wasmRuntime.Close(context.Background()) }()
-
 	wasmbytes, err := os.ReadFile(dir + "/wasm/" + wasmFile)
 	if err != nil {
 		panic(err)
 	}
 
-	wasmModule, err := wasm.NewModule(ctx, wasmRuntime, wasmbytes, "event", log)
+	wasmModule, err := wasm.NewJobicoletModule(ctx, cacheDir, wasmbytes, "event", log)
 	if err != nil {
 		panic(err)
 	}
@@ -93,7 +87,9 @@ loop:
 				for msg := range msgs.Messages() {
 					msg.DoubleAck(ctx)
 					fmt.Println("executing ....")
-					c, r, err := wasmModule.Run(context.Background(), string(msg.Data()))
+					ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+					c, r, err := wasmModule.Run(ctx, string(msg.Data()))
+					cancel()
 					if err != nil {
 						fmt.Printf("error: %v", err)
 						continue

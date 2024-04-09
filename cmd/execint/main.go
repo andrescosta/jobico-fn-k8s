@@ -111,19 +111,11 @@ func main() {
 	}
 
 	cacheDir := path.Join(dir, "/.cache")
-	runtime, err := wasm.NewRuntimeWithCompilationCache(cacheDir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error initializing Wazero: %v\n", err)
-		os.Exit(1)
-	}
-	defer runtime.Close(ctx)
-	buffIn := &bytes.Buffer{}
-	buffOut := &bytes.Buffer{}
-	buffErr := &bytes.Buffer{}
-	var mod *wasm.IntModule
+	var mod *wasm.GenericModule
+	var wasm string
 	switch scriptType {
 	case ScriptPython:
-		mod, err = modForPython(ctx, dir, script, runtime, buffIn, buffOut, buffErr)
+		mod, wasm, err = modForPython(ctx, dir, cacheDir)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error creating python module: %v\n", err)
 			os.Exit(1)
@@ -131,7 +123,7 @@ func main() {
 	case ScriptJavascript:
 	}
 	if scriptType == ScriptJavascript {
-		mod, err = modForJavascript(ctx, dir, script, runtime, buffIn, buffOut, buffErr)
+		mod, wasm, err = modForJavascript(ctx, dir, cacheDir)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error creating javascript module: %v\n", err)
 			os.Exit(1)
@@ -155,15 +147,22 @@ func main() {
 				return
 			}
 			fmt.Printf("Received msg: %s\n", msg.Data())
-			// Simulate work
-			buffErr.Reset()
-			buffIn.Reset()
-			buffOut.Reset()
+			buffIn := &bytes.Buffer{}
+			buffOut := &bytes.Buffer{}
+			buffErr := &bytes.Buffer{}
 			_, err = buffIn.Write(msg.Data())
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "error writting data: %v\n", err)
 			} else {
-				err = mod.Run(ctx)
+				ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+				var err error
+				if scriptType == ScriptJavascript {
+					err = runJavascript(ctx, mod, dir, wasm, script, buffIn, buffOut, buffErr)
+				}
+				if scriptType == ScriptPython {
+					err = runPython(ctx, mod, dir, wasm, script, buffIn, buffOut, buffErr)
+				}
+				cancel()
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Error executing the module: %v\n", err)
 					fmt.Printf("Error: %s\n", buffErr.String())
@@ -184,6 +183,107 @@ func main() {
 			msg.Ack()
 		}()
 	}
+}
+
+func processPythonOutput(buffOut *bytes.Buffer, buffErr *bytes.Buffer) error {
+	var res int32
+	binary.Read(buffOut, binary.LittleEndian, &res)
+	fmt.Printf("Result:\n%d\n", res)
+	msgRes, err := io.ReadAll(buffOut)
+	if err != nil {
+		return fmt.Errorf("error reading out buffer: %v", err)
+	}
+	fmt.Printf("Text:\n%s\n", msgRes)
+	var lvl uint8
+	var size uint32
+	binary.Read(buffErr, binary.LittleEndian, &lvl)
+	binary.Read(buffErr, binary.LittleEndian, &size)
+	fmt.Printf("Level:%d\n", lvl)
+	fmt.Printf("Size:%d\n", size)
+	msgLog := make([]byte, size)
+	_, err = buffErr.Read(msgLog)
+	if err != nil {
+		return fmt.Errorf("error reading log buffer: %v", err)
+	}
+	fmt.Printf("Text:%s\n", msgLog)
+	return nil
+}
+
+func processJavascriptOutput(buffOut *bytes.Buffer, buffErr *bytes.Buffer) error {
+	scErr := bufio.NewScanner(buffErr)
+	for scErr.Scan() {
+		msgErr := scErr.Text()
+		fmt.Printf("Level:%s\n", string(msgErr[0]))
+		fmt.Printf("Text:%s\n", msgErr[1:])
+	}
+	scOut := bufio.NewScanner(buffOut)
+	if scOut.Scan() {
+		msgOut := scOut.Text()
+		fmt.Printf("Result:%s\n", strings.TrimSpace(msgOut[0:11]))
+		fmt.Printf("Text:%s\n", msgOut[11:])
+	}
+	return nil
+}
+
+func runPython(ctx context.Context, mod *wasm.GenericModule, dir, pywasm, script string, buffIn *bytes.Buffer, buffOut *bytes.Buffer, buffErr *bytes.Buffer) error {
+	mounts := []string{
+		path.Join(dir, "python/lib/python3.13") + ":/usr/local/lib/python3.13:ro",
+		path.Join(dir, "python/sdk") + ":/usr/local/lib/jobico:ro",
+		path.Join(dir, "python/prg") + ":/prg",
+	}
+	args := []string{
+		pywasm,
+		"/prg/" + script,
+	}
+	e := []wasm.EnvVar{{Key: "PYTHONPATH", Value: "/usr/local/lib/jobico"}}
+	return mod.Run(ctx, mounts, args, e, buffIn, buffOut, buffErr)
+}
+
+func runJavascript(ctx context.Context, mod *wasm.GenericModule, dir, jswasm, script string, buffIn *bytes.Buffer, buffOut *bytes.Buffer, buffErr *bytes.Buffer) error {
+	fmt.Printf("WASM: %s\n", jswasm)
+	fmt.Printf("Script: %s\n", script)
+	fmt.Printf("Dir: %s\n", dir)
+	mounts := []string{
+		path.Join(dir, "/js") + ":/js",
+	}
+	args := []string{
+		jswasm,
+		"--module=/js/prg/" + script,
+	}
+	fmt.Printf("%v\n", args)
+	e := []wasm.EnvVar{}
+	return mod.Run(ctx, mounts, args, e, buffIn, buffOut, buffErr)
+}
+
+func modForPython(ctx context.Context, dir string, tempDir string) (*wasm.GenericModule, string, error) {
+	pywasm := path.Join(dir, "/python/python.wasm")
+	wasmf, err := os.ReadFile(pywasm)
+	if err != nil {
+		return nil, "", err
+	}
+	mod, err := wasm.NewGenericModule(ctx, tempDir, wasmf, log)
+	if err != nil {
+		return nil, "", err
+	}
+	return mod, "/python/python.wasm", nil
+}
+
+func modForJavascript(ctx context.Context, dir string, tempDir string) (*wasm.GenericModule, string, error) {
+	pywasm := path.Join(dir, "/js/js.wasm")
+	wasmf, err := os.ReadFile(pywasm)
+	if err != nil {
+		return nil, "", err
+	}
+	mod, err := wasm.NewGenericModule(ctx, tempDir, wasmf, log)
+	if err != nil {
+		return nil, "", err
+	}
+	return mod, "/js/js.wasm", nil
+}
+
+func log(ctx context.Context, lvl uint32, msg string) error {
+	fmt.Printf("%d-%s", lvl, msg)
+	return nil
 }
 
 // nc, err := nats.Connect(url)
@@ -363,92 +463,3 @@ func main() {
 //		}
 //	}
 //}
-
-func processPythonOutput(buffOut *bytes.Buffer, buffErr *bytes.Buffer) error {
-	var res int32
-	binary.Read(buffOut, binary.LittleEndian, &res)
-	fmt.Printf("Result:\n%d\n", res)
-	msgRes, err := io.ReadAll(buffOut)
-	if err != nil {
-		return fmt.Errorf("error reading out buffer: %v", err)
-	}
-	fmt.Printf("Text:\n%s\n", msgRes)
-	var lvl uint8
-	var size uint32
-	binary.Read(buffErr, binary.LittleEndian, &lvl)
-	binary.Read(buffErr, binary.LittleEndian, &size)
-	fmt.Printf("Level:%d\n", lvl)
-	fmt.Printf("Size:%d\n", size)
-	msgLog := make([]byte, size)
-	_, err = buffErr.Read(msgLog)
-	if err != nil {
-		return fmt.Errorf("error reading log buffer: %v", err)
-	}
-	fmt.Printf("Text:%s\n", msgLog)
-	return nil
-}
-
-func processJavascriptOutput(buffOut *bytes.Buffer, buffErr *bytes.Buffer) error {
-	scErr := bufio.NewScanner(buffErr)
-	for scErr.Scan() {
-		msgErr := scErr.Text()
-		fmt.Printf("Level:%s\n", string(msgErr[0]))
-		fmt.Printf("Text:%s\n", msgErr[1:])
-	}
-	scOut := bufio.NewScanner(buffOut)
-	if scOut.Scan() {
-		msgOut := scOut.Text()
-		fmt.Printf("Result:%s\n", strings.TrimSpace(msgOut[0:11]))
-		fmt.Printf("Text:%s\n", msgOut[11:])
-	}
-	return nil
-}
-
-func modForPython(ctx context.Context, dir string, script string, runtime *wasm.Runtime, buffIn *bytes.Buffer, buffOut *bytes.Buffer, buffErr *bytes.Buffer) (*wasm.IntModule, error) {
-	pywasm := path.Join(dir, "/python/python.wasm")
-	wasmf, err := os.ReadFile(pywasm)
-	if err != nil {
-		return nil, err
-	}
-	mounts := []string{
-		path.Join(dir, "python/lib/python3.13") + ":/usr/local/lib/python3.13:ro",
-		path.Join(dir, "python/sdk") + ":/usr/local/lib/jobico:ro",
-		path.Join(dir, "python/prg") + ":/prg",
-	}
-	args := []string{
-		pywasm,
-		"/prg/" + script,
-	}
-	e := []wasm.EnvVar{{Key: "PYTHONPATH", Value: "/usr/local/lib/jobico"}}
-	mod, err := wasm.NewIntModule(ctx, runtime, wasmf, log, mounts, args, e, buffIn, buffOut, buffErr)
-	if err != nil {
-		return nil, err
-	}
-	return mod, nil
-}
-
-func modForJavascript(ctx context.Context, dir string, script string, runtime *wasm.Runtime, buffIn *bytes.Buffer, buffOut *bytes.Buffer, buffErr *bytes.Buffer) (*wasm.IntModule, error) {
-	pywasm := path.Join(dir, "/js/js.wasm")
-	wasmf, err := os.ReadFile(pywasm)
-	if err != nil {
-		return nil, err
-	}
-	mounts := []string{
-		path.Join(dir, "/js/prg") + ":/prg",
-	}
-	args := []string{
-		pywasm,
-		"--module=/prg/" + script,
-	}
-	e := []wasm.EnvVar{}
-	mod, err := wasm.NewIntModule(ctx, runtime, wasmf, log, mounts, args, e, buffIn, buffOut, buffErr)
-	if err != nil {
-		return nil, err
-	}
-	return mod, nil
-}
-
-func log(ctx context.Context, lvl uint32, msg string) error {
-	fmt.Printf("%d-%s", lvl, msg)
-	return nil
-}
