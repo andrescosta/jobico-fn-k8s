@@ -60,13 +60,13 @@ func main() {
 		panic(err)
 	}
 
+	// WASM Initialization
 	fmt.Println("created the stream")
 	cacheDir := dir + "/cache"
 	wasmbytes, err := os.ReadFile(dir + "/wasm/" + wasmFile)
 	if err != nil {
 		panic(err)
 	}
-
 	wasmModule, err := wasm.NewJobicoletModule(ctx, cacheDir, wasmbytes, "event", log)
 	if err != nil {
 		panic(err)

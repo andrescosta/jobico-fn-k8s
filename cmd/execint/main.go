@@ -44,7 +44,7 @@ func main() {
 		panic("no script")
 	}
 	fmt.Printf("started with event: %s\n", event)
-	// Nats
+
 	url := env.GetString("NATS_URL", "nats://nats:4222")
 	fmt.Printf("Connecting Nats with %s\n", url)
 
@@ -53,9 +53,7 @@ func main() {
 		fmt.Printf("cannot connect to NATS server: %v", err)
 		os.Exit(1)
 	}
-
 	defer nc.Drain()
-
 	js, err := jetstream.New(nc)
 	if err != nil {
 		fmt.Printf("cannot create JetStream instance: %v", err)
@@ -109,7 +107,6 @@ func main() {
 			os.Exit(1)
 		}
 	}
-
 	cacheDir := path.Join(dir, "/.cache")
 	var mod *wasm.GenericModule
 	var wasm string
@@ -121,8 +118,6 @@ func main() {
 			os.Exit(1)
 		}
 	case ScriptJavascript:
-	}
-	if scriptType == ScriptJavascript {
 		mod, wasm, err = modForJavascript(ctx, dir, cacheDir)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error creating javascript module: %v\n", err)
@@ -130,22 +125,20 @@ func main() {
 		}
 	}
 	defer mod.Close(ctx)
-
 	parallelConsumers := 1
 	sem := make(chan struct{}, parallelConsumers)
 	for {
 		sem <- struct{}{}
-
 		go func() {
 			defer func() {
 				<-sem
 			}()
-
 			msg, err := iter.Next()
 			if err != nil {
 				fmt.Println("next err: ", err)
 				return
 			}
+			defer msg.Ack()
 			fmt.Printf("Received msg: %s\n", msg.Data())
 			buffIn := &bytes.Buffer{}
 			buffOut := &bytes.Buffer{}
@@ -153,36 +146,36 @@ func main() {
 			_, err = buffIn.Write(msg.Data())
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "error writting data: %v\n", err)
-			} else {
-				ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-				var err error
-				if scriptType == ScriptJavascript {
-					err = runJavascript(ctx, mod, dir, wasm, script, buffIn, buffOut, buffErr)
+				return
+			}
+			ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			defer cancel()
+			switch scriptType {
+			case ScriptJavascript:
+				if runJavascript(ctx, mod, dir, wasm, script, buffIn, buffOut, buffErr); err != nil {
+					manageErrorRun(err, buffErr, buffOut)
+					return
 				}
-				if scriptType == ScriptPython {
-					err = runPython(ctx, mod, dir, wasm, script, buffIn, buffOut, buffErr)
+				if err := processJavascriptOutput(buffOut, buffErr); err != nil {
+					fmt.Fprintf(os.Stderr, "Error while processing the error results: %v\n", err)
 				}
-				cancel()
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error executing the module: %v\n", err)
-					fmt.Printf("Error: %s\n", buffErr.String())
-					fmt.Printf("Std out: %s\n", buffOut.String())
-				} else {
-					if scriptType == ScriptPython {
-						if err := processPythonOutput(buffOut, buffErr); err != nil {
-							fmt.Fprintf(os.Stderr, "Error while processing the error results: %v\n", err)
-						}
-					}
-					if scriptType == ScriptJavascript {
-						if err := processJavascriptOutput(buffOut, buffErr); err != nil {
-							fmt.Fprintf(os.Stderr, "Error while processing the error results: %v\n", err)
-						}
-					}
+			case ScriptPython:
+				if err := runPython(ctx, mod, dir, wasm, script, buffIn, buffOut, buffErr); err != nil {
+					manageErrorRun(err, buffErr, buffOut)
+					return
+				}
+				if err := processPythonOutput(buffOut, buffErr); err != nil {
+					fmt.Fprintf(os.Stderr, "Error while processing the error results: %v\n", err)
 				}
 			}
-			msg.Ack()
 		}()
 	}
+}
+
+func manageErrorRun(err error, buffErr *bytes.Buffer, buffOut *bytes.Buffer) {
+	fmt.Fprintf(os.Stderr, "Error executing the module: %v\n", err)
+	fmt.Printf("Error: %s\n", buffErr.String())
+	fmt.Printf("Std out: %s\n", buffOut.String())
 }
 
 func processPythonOutput(buffOut *bytes.Buffer, buffErr *bytes.Buffer) error {
