@@ -541,8 +541,8 @@ func (r *JobReconciler) jobDefinitionInt(jobName string, jobdef jobicov1.Job, ev
 					},
 					Containers: []core.Container{
 						{
-							Name:            "execint-" + evt.Name,
-							Image:           "execint:v1",
+							Name:            "exec-" + evt.Name,
+							Image:           "exec:v1",
 							ImagePullPolicy: core.PullNever,
 							Env: []core.EnvVar{
 								{
@@ -577,7 +577,6 @@ func (r *JobReconciler) jobDefinitionInt(jobName string, jobdef jobicov1.Job, ev
 	if err := ctrl.SetControllerReference(&jobdef, &job, r.Scheme); err != nil {
 		return nil, err
 	}
-
 	return &job, nil
 }
 

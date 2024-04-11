@@ -240,31 +240,6 @@ compile-image-exec:
 load-image-exec:
 	kind load docker-image exec:v1 -n jobico
 
-execint: compile-image-execint load-image-execint
-
-compile-image-execint: 
-	docker build -t execint:v1 -f ./docker/dockerfile.execint .
-
-compile-image-execint-nocache: 
-	docker build --no-cache -t execint:v1 -f ./docker/dockerfile.execint .
-
-load-image-execint:
-	kind load docker-image execint:v1 -n jobico
-
-prep-python:
-	docker exec -it jobico-control-plane mkdir -p /data/volumes/pv1/python
-	docker exec -it jobico-control-plane curl -o /data/volumes/pv1/python/python-3.13.0a5-wasi_sdk-20.zip -LJ https://github.com/brettcannon/cpython-wasi-build/releases/download/v3.13.0a5/python-3.13.0a5-wasi_sdk-20.zip 
-	docker exec -it jobico-control-plane python3 -m zipfile -e /data/volumes/pv1/python/python-3.13.0a5-wasi_sdk-20.zip /data/volumes/pv1/python/
-	docker exec -it jobico-control-plane rm /data/volumes/pv1/python/python-3.13.0a5-wasi_sdk-20.zip
-#docker cp sdk/ jobico-control-plane:/data/volumes/pv1/python
-
-
-# https://github.com/mozilla-spidermonkey/sm-wasi-demo/blob/main/data.json
-prep-js:
-	docker exec jobico-control-plane mkdir -p /data/volumes/pv1/js
-	docker exec jobico-control-plane curl -o /data/volumes/pv1/js/js.wasm -LJ https://firefoxci.taskcluster-artifacts.net/OWBTW-rCTqGtqtvO4rpJkA/0/public/build/js.wasm
-
-
 ##@ Cert manager
 .PHONY: cert-manager-install
 

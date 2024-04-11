@@ -1,4 +1,4 @@
-package service
+package runner
 
 import (
 	"context"
@@ -13,7 +13,7 @@ type jobicoletModuleRunner struct {
 	mod *wasm.JobicoletModule
 }
 
-func NewjobicoletModuleRunner(ctx context.Context, wasmFile string, service Service, log wasm.LogFn) (moduleRunner, error) {
+func NewjobicoletModuleRunner(ctx context.Context, wasmFile string, service *EventsRunner, log wasm.LogFn) (moduleRunner, error) {
 	cacheDir := path.Join(service.dir, ".cache")
 	file := path.Join(service.dir, "wasm", wasmFile)
 	wasmbytes, err := os.ReadFile(file)
@@ -29,7 +29,7 @@ func NewjobicoletModuleRunner(ctx context.Context, wasmFile string, service Serv
 	}, nil
 }
 
-func (j *jobicoletModuleRunner) execute(ctx context.Context, msg []byte) (uint64, string, error) {
+func (j *jobicoletModuleRunner) run(ctx context.Context, msg []byte) (uint64, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	return j.mod.Run(ctx, string(msg))

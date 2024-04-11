@@ -125,7 +125,7 @@ func main() {
 	})
 
 	var srv http.Server
-	idleConnsClosed := make(chan struct{})
+	closed := make(chan struct{})
 	go func() {
 		sigint := make(chan os.Signal, 1)
 		signal.Notify(sigint, os.Interrupt)
@@ -134,7 +134,7 @@ func main() {
 		if err := srv.Shutdown(context.Background()); err != nil {
 			fmt.Printf("HTTP server Shutdown: %v", err)
 		}
-		close(idleConnsClosed)
+		close(closed)
 	}()
 
 	srv = http.Server{Addr: ":8080", Handler: mux}
@@ -143,6 +143,6 @@ func main() {
 		fmt.Printf("HTTP server ListenAndServe: %v", err)
 	}
 
-	<-idleConnsClosed
+	<-closed
 	println("stopped")
 }

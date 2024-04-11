@@ -1,4 +1,4 @@
-package service
+package runner
 
 import (
 	"bufio"
@@ -36,18 +36,19 @@ type genericModuleRunner struct {
 }
 
 type errorRun struct {
-	err    error
-	stdOut []byte
-	stdErr []byte
+	Err    error
+	StdOut []byte
+	StdErr []byte
 }
 
 func (errorRun) Error() string {
 	return ""
 }
 
-func NewGenericModuleRunner(ctx context.Context, script string, service Service, log wasm.LogFn) (moduleRunner, error) {
+func newGenericModuleRunner(ctx context.Context, script string, service *EventsRunner, log wasm.LogFn) (moduleRunner, error) {
 	var scriptType scriptType
 	var exec string
+	fmt.Printf("%s-%s-%s\n", script, service.dir, service.event)
 	if strings.HasSuffix(script, "py") {
 		scriptType = ScriptPython
 		exec = "/python/python.wasm"
@@ -60,6 +61,7 @@ func NewGenericModuleRunner(ctx context.Context, script string, service Service,
 		}
 	}
 	wasmp := path.Join(service.dir, exec)
+	fmt.Printf("Exec: %s\n", wasmp)
 	wasmf, err := os.ReadFile(wasmp)
 	if err != nil {
 		return nil, err
@@ -76,6 +78,7 @@ func NewGenericModuleRunner(ctx context.Context, script string, service Service,
 		script: script,
 		dir:    service.dir,
 		exec:   exec,
+		log:    log,
 		pool: &sync.Pool{
 			New: func() interface{} {
 				return new(bytes.Buffer)
@@ -88,7 +91,7 @@ func (g *genericModuleRunner) close(ctx context.Context) error {
 	return g.mod.Close(ctx)
 }
 
-func (g *genericModuleRunner) execute(ctx context.Context, msg []byte) (uint64, string, error) {
+func (g *genericModuleRunner) run(ctx context.Context, msg []byte) (uint64, string, error) {
 	buffIn := g.pool.Get().(*bytes.Buffer)
 	buffIn.Reset()
 	defer g.pool.Put(buffIn)
@@ -108,18 +111,18 @@ func (g *genericModuleRunner) execute(ctx context.Context, msg []byte) (uint64, 
 	case ScriptJavascript:
 		if err := g.runJavascript(ctx, buffIn, buffOut, buffErr); err != nil {
 			return 0, "", errorRun{
-				err:    err,
-				stdOut: buffOut.Bytes(),
-				stdErr: buffErr.Bytes(),
+				Err:    err,
+				StdOut: buffOut.Bytes(),
+				StdErr: buffErr.Bytes(),
 			}
 		}
 		return g.processJavascriptOutput(ctx, buffOut, buffErr)
 	case ScriptPython:
 		if err := g.runPython(ctx, buffIn, buffOut, buffErr); err != nil {
 			return 0, "", errorRun{
-				err:    err,
-				stdOut: buffOut.Bytes(),
-				stdErr: buffErr.Bytes(),
+				Err:    err,
+				StdOut: buffOut.Bytes(),
+				StdErr: buffErr.Bytes(),
 			}
 		}
 		return g.processPythonOutput(ctx, buffOut, buffErr)
