@@ -1,0 +1,115 @@
+
+
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    app: loki-claim0
+  name: loki-claim0
+  namespace: obs
+spec:
+  accessModes:
+    - ReadOnlyMany
+  resources:
+    requests:
+      storage: 100Mi
+status: {}
+
+
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-config
+  namespace: obs
+data:
+  loki-local-config.yaml: "auth_enabled: false\r\n\r\nserver:\r\n  http_listen_port:
+    3100\r\n  grpc_listen_port: 9096\r\n\r\ncommon:\r\n  instance_addr: 127.0.0.1\r\n
+    \ path_prefix: /tmp/loki\r\n  storage:\r\n    filesystem:\r\n      chunks_directory:
+    /tmp/loki/chunks\r\n      rules_directory: /tmp/loki/rules\r\n  replication_factor:
+    1\r\n  ring:\r\n    kvstore:\r\n      store: inmemory\r\n\r\nquery_range:\r\n
+    \ results_cache:\r\n    cache:\r\n      embedded_cache:\r\n        enabled: true\r\n
+    \       max_size_mb: 100\r\n\r\nschema_config:\r\n  configs:\r\n    - from: 2020-10-24\r\n
+    \     store: boltdb-shipper\r\n      object_store: filesystem\r\n      schema:
+    v11\r\n      index:\r\n        prefix: index_\r\n        period: 24h\r\n\r\nruler:\r\n
+    \ alertmanager_url: http://localhost:9093\r\n\r\n# By default, Loki will send
+    anonymous, but uniquely-identifiable usage and configuration\r\n# analytics to
+    Grafana Labs. These statistics are sent to https://stats.grafana.org/\r\n#\r\n#
+    Statistics help us better understand how Loki is used, and they show us performance\r\n#
+    levels for most users. This helps us prioritize features and documentation.\r\n#
+    For more information on what's sent, look at\r\n# https://github.com/grafana/loki/blob/main/pkg/usagestats/stats.go\r\n#
+    Refer to the buildReport method to see what goes into a report.\r\n#\r\n# If you
+    would like to disable reporting, uncomment the following lines:\r\n#analytics:\r\n#
+    \ reporting_enabled: false\r\n"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: loki
+  name: loki
+  namespace: obs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loki
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: loki
+    spec:
+      containers:
+        - args:
+            - -config.file=/etc/loki-local-config.yaml
+          env:
+            - name: JAEGER_AGENT_HOST
+              value: tempo
+            - name: JAEGER_ENDPOINT
+              value: http://tempo:14268/api/traces
+            - name: JAEGER_SAMPLER_PARAM
+              value: "1"
+            - name: JAEGER_SAMPLER_TYPE
+              value: const
+          image: grafana/loki
+          name: loki
+          ports:
+            - containerPort: 3100
+              hostPort: 3100
+              protocol: TCP
+          resources: {}
+          volumeMounts:
+            - mountPath: /etc/loki-local-config.yaml
+              name: loki-config
+              subPath: loki-local-config.yaml
+      restartPolicy: Always
+      volumes:
+        - name: loki-config
+          configMap:
+              defaultMode: 420
+              name: loki-config
+status: {}
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: loki
+  name: loki
+  namespace: obs
+spec:
+  ports:
+    - name: "3100"
+      port: 3100
+      targetPort: 3100
+  selector:
+    app: loki
+status:
+  loadBalancer: {}

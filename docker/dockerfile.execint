@@ -6,11 +6,10 @@ COPY go.mod ./
 COPY go.sum ./
 RUN go mod download
 
-COPY ./cmd/exec/ ./cmd/exec/
-COPY ./internal/runner/ ./internal/runner/
+COPY ./cmd/execint/ ./cmd/execint/
 RUN go build -o ./bin/ -trimpath ./cmd/...
 
 FROM  debian:12-slim as exec
 WORKDIR /app
 COPY --from=builder /workdir/bin/* .
-ENTRYPOINT ["/app/exec"]
+ENTRYPOINT ["/app/execint"]

@@ -27,16 +27,20 @@ import (
 
 // JobSpec defines the desired state of Job
 type JobSpec struct {
-	// +kubebuilder:validation:Required
-	Events []Event `json:"events,omitempty"`
+	// +kubebuilder:validation:MinItems:=1
+	Events []Event `json:"events"`
 }
 
+// +kubebuilder:validation:XValidation:message="script or wasm must be specified", rule=((self.script!="" && self.wasm=="") || (self.script=="" && self.wasm!=""))
 type Event struct {
-	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength:=1
 	Name string `json:"name"`
-	// +kubebuilder:validation:Required
-	Wasm string `json:"wasm,omitempty"`
-	// +kubebuilder:validation:Required
+
+	Wasm string `json:"wasm"`
+
+	Script string `json:"script"`
+
+	// +kubebuilder:validation:XValidation:message="schema.key or schema.name must be specified", rule=(self.key!="" || self.name!="")
 	Schema corev1.ConfigMapKeySelector `json:"schema"`
 }
 
@@ -54,7 +58,7 @@ type Job struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   JobSpec   `json:"spec,omitempty"`
+	Spec   JobSpec   `json:"spec"`
 	Status JobStatus `json:"status,omitempty"`
 }
 

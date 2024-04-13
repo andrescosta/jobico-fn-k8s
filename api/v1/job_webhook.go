@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	validationutils "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -80,9 +79,8 @@ func (r *Job) ValidateDelete() (admission.Warnings, error) {
 }
 
 func (r *Job) validate() (admission.Warnings, error) {
-	allErrors := r.validateJob()
+	allErrors := make([]*field.Error, 0)
 	for _, e := range r.Spec.Events {
-		allErrors = append(allErrors, r.validateEvent(e)...)
 		err := r.validateIfEventExists(e)
 		if err != nil {
 			allErrors = append(allErrors, err)
@@ -95,31 +93,6 @@ func (r *Job) validate() (admission.Warnings, error) {
 			r.Name, allErrors)
 	}
 	return nil, nil
-}
-
-func (r *Job) validateJob() field.ErrorList {
-	var allErrors field.ErrorList
-	if len(r.Spec.Events) == 0 {
-		allErrors = append(allErrors, field.Required(field.NewPath("events[]"), ""))
-	}
-	if len(r.ObjectMeta.Name) > validationutils.DNS1035LabelMaxLength-24 {
-		allErrors = append(allErrors, field.Invalid(field.NewPath("metadata").Child("name"), r.Name, "must be no more than 35 characters"))
-	}
-	return allErrors
-}
-
-func (*Job) validateEvent(e Event) field.ErrorList {
-	var allErrors field.ErrorList
-	if e.Name == "" {
-		allErrors = append(allErrors, field.Required(field.NewPath("events[]").Child("name"), ""))
-	}
-	if e.Wasm == "" {
-		allErrors = append(allErrors, field.Required(field.NewPath("events[]").Child("wasm"), ""))
-	}
-	if e.Schema.Key == "" {
-		allErrors = append(allErrors, field.Required(field.NewPath("events[]").Child("key"), ""))
-	}
-	return allErrors
 }
 
 func (r *Job) validateIfEventExists(evt Event) *field.Error {

@@ -70,6 +70,7 @@ func newIds(e jobicov1.Event, jobdef jobicov1.Job) ids {
 // +kubebuilder:rbac:groups="",resources=services,verbs=create;update;patch;delete;list;watch
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=create;update;patch;delete;list;watch
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=create;update;patch;delete;list;watch
+
 func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
@@ -101,11 +102,21 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		}
 
 		// Job
-		var err error
-		requeue, err = r.reconcileJob(ctx, i, evt, jobdef)
-		if err != nil {
-			logger.Error(err, "Error while reconciling Services", "job", jobdef.Name)
-			return ctrl.Result{}, err
+		if len(evt.Wasm) > 0 {
+			var err error
+			requeue, err = r.reconcileJob(ctx, i, evt, jobdef)
+			if err != nil {
+				logger.Error(err, "Error while reconciling Services", "job", jobdef.Name)
+				return ctrl.Result{}, err
+			}
+		}
+		if len(evt.Script) > 0 {
+			var err error
+			requeue, err = r.reconcileJobInt(ctx, i, evt, jobdef)
+			if err != nil {
+				logger.Error(err, "Error while reconciling Services", "job", jobdef.Name)
+				return ctrl.Result{}, err
+			}
 		}
 	}
 	err := r.garbageCollect(ctx, jobdef)
@@ -130,6 +141,40 @@ func (r *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 func (r *JobReconciler) reconcileJob(ctx context.Context, i ids, evt jobicov1.Event, jobdef jobicov1.Job) (bool, error) {
 	current, err := r.jobDefinition(i.Job, jobdef, evt)
+	if err != nil {
+		return false, err
+	}
+	orig := new(batch.Job)
+	exist, err := r.get(ctx, orig, i.Job, jobdef.Namespace)
+	if err != nil {
+		return false, err
+	}
+	if exist {
+		if !orig.DeletionTimestamp.IsZero() {
+			return true, nil
+		}
+		if reflect.DeepEqual(
+			current.Spec.Template.Spec.Containers[0].Env,
+			orig.Spec.Template.Spec.Containers[0].Env) {
+			return false, nil
+		}
+
+		// the Job's template section is immutable and cannot be updated.
+		// We delete it and recreate later.
+		err := r.Delete(ctx, orig, &client.DeleteOptions{PropagationPolicy: ref.Of(v1.DeletePropagationBackground)})
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	if err := r.Create(ctx, current); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+func (r *JobReconciler) reconcileJobInt(ctx context.Context, i ids, evt jobicov1.Event, jobdef jobicov1.Job) (bool, error) {
+	current, err := r.jobDefinitionInt(i.Job, jobdef, evt)
 	if err != nil {
 		return false, err
 	}
@@ -382,7 +427,7 @@ func (r *JobReconciler) deploymentDefinition(deploymentName string, jobdef jobic
 								},
 								{
 									Name:  "NATS_URL",
-									Value: "nats://queue:4222",
+									Value: "nats://nats:4222",
 								},
 								{
 									Name:  "schema",
@@ -442,7 +487,7 @@ func (r *JobReconciler) jobDefinition(jobName string, jobdef jobicov1.Job, evt j
 								},
 								{
 									Name:  "NATS_URL",
-									Value: "nats://queue:4222",
+									Value: "nats://nats:4222",
 								},
 								{
 									Name:  "wasm",
@@ -468,7 +513,70 @@ func (r *JobReconciler) jobDefinition(jobName string, jobdef jobicov1.Job, evt j
 	if err := ctrl.SetControllerReference(&jobdef, &job, r.Scheme); err != nil {
 		return nil, err
 	}
+	return &job, nil
+}
 
+func (r *JobReconciler) jobDefinitionInt(jobName string, jobdef jobicov1.Job, evt jobicov1.Event) (*batch.Job, error) {
+	job := batch.Job{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      jobName,
+			Namespace: jobdef.Namespace,
+		},
+		Spec: batch.JobSpec{
+			Template: core.PodTemplateSpec{
+				ObjectMeta: v1.ObjectMeta{
+					Labels: map[string]string{"app": "exec", "event": evt.Name, "owner": jobdef.Name},
+				},
+				Spec: core.PodSpec{
+					RestartPolicy: core.RestartPolicyOnFailure,
+					Volumes: []core.Volume{
+						{
+							Name: "local-persistent-storage",
+							VolumeSource: core.VolumeSource{
+								PersistentVolumeClaim: &core.PersistentVolumeClaimVolumeSource{
+									ClaimName: "test-pvc",
+								},
+							},
+						},
+					},
+					Containers: []core.Container{
+						{
+							Name:            "exec-" + evt.Name,
+							Image:           "exec:v1",
+							ImagePullPolicy: core.PullNever,
+							Env: []core.EnvVar{
+								{
+									Name:  "event",
+									Value: evt.Name,
+								},
+								{
+									Name:  "NATS_URL",
+									Value: "nats://nats:4222",
+								},
+								{
+									Name:  "script",
+									Value: evt.Script,
+								},
+								{
+									Name:  "dir",
+									Value: "/mnt/exec",
+								},
+							},
+							VolumeMounts: []core.VolumeMount{
+								{
+									Name:      "local-persistent-storage",
+									MountPath: "/mnt/exec",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	if err := ctrl.SetControllerReference(&jobdef, &job, r.Scheme); err != nil {
+		return nil, err
+	}
 	return &job, nil
 }
 

@@ -43,6 +43,7 @@ spec:
                 items:
                   properties:
                     name:
+                      minLength: 1
                       type: string
                     schema:
                       description: Selects a key from a ConfigMap.
@@ -64,13 +65,27 @@ spec:
                       - key
                       type: object
                       x-kubernetes-map-type: atomic
+                      x-kubernetes-validations:
+                      - message: schema.key or schema.name must be specified
+                        rule: (self.key!="" || self.name!="")
+                    script:
+                      type: string
                     wasm:
                       type: string
                   required:
                   - name
                   - schema
+                  - script
+                  - wasm
                   type: object
+                  x-kubernetes-validations:
+                  - message: script or wasm must be specified
+                    rule: ((self.script!="" && self.wasm=="") || (self.script==""
+                      && self.wasm!=""))
+                minItems: 1
                 type: array
+            required:
+            - events
             type: object
           status:
             description: JobStatus defines the observed state of Job
@@ -139,6 +154,8 @@ spec:
                   x-kubernetes-map-type: atomic
                 type: array
             type: object
+        required:
+        - spec
         type: object
     served: true
     storage: true

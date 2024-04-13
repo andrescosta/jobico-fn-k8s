@@ -80,7 +80,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${IMG} -f docker/dockerfile.op .
+	$(CONTAINER_TOOL) build --no-cache -t ${IMG} -f docker/dockerfile.op .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
@@ -133,13 +133,16 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: deploy
-deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+deploy: manifests kustomize docker-build  load-controller ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
 
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+
+.PHONY: deploy-all
+deploy-all: deploy images
 
 .PHONY: deploy-local
 deploy-local: manifests kustomize 
@@ -150,7 +153,8 @@ undeploy-local: manifests kustomize
 	$(KUSTOMIZE) build config/local | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
 ##@ Kind cluster
-.PHONY: kind kind-delete kind-cluster ingress dir storage nats
+
+.PHONY: kind kind-delete kind-cluster ingress wait-ingress dir storage nats obs
 
 kind: kind-cluster ingress dir storage nats cert-manager-install
 
@@ -158,7 +162,7 @@ kind-delete:
 	@kind delete cluster -n jobico
 
 kind-cluster:
-	@kind create cluster -n jobico --config ./config/cluster/cluster.yaml
+	@kind create cluster -n jobico --config ./config/cluster/kind-cluster.yaml
 
 dir:
 	@docker exec -it jobico-control-plane mkdir -p /data/volumes/pv1/wasm chmod 777 /data/volumes/pv1/wasm
@@ -167,16 +171,35 @@ storage:
 	@kubectl apply -f config/storage/storage.yaml
 
 nats:
-	@kubectl apply -f config/nats/cluster.yaml
+	helm install -f ./config/nats/conf.yaml nats nats/nats
 
-.PHONY: ingress wait-ingress
+obs: wait-ingress
+	kubectl apply -f config/obs/namespace.yaml
+	kubectl apply -f config/obs/grafana.yaml
+	kubectl apply -f config/obs/loki.yaml
+	kubectl apply -f config/obs/tempo.yaml
+	kubectl apply -f config/obs/promtail.yaml
 
 ingress:
 	@kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
 
-wait-ingress:
-	@kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=90s
+# Define the maximum number of retries
+MAX_RETRIES := 4
+SLEEP_DURATION := 5
 
+# Define your target with the retry logic
+wait-ingress:
+	@echo "Waiting for Ingress..."
+	@n=0; \
+	while [ $$n -lt 3 ]; do \
+		if kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=90s; then \
+			exit 0; \
+		else \
+			sleep $(SLEEP_DURATION); \
+			n=$$(($$n+1)); \
+		fi \
+	done; \
+	exit 1;
 ##@ Local test
 .PHONY: test-op local
 
@@ -203,16 +226,19 @@ ex1: ## Deploy the sample Job "ex1"
 ex2: ## Deploy the sample Job "ex2"
 	@kubectl apply -f config/samples/2.yaml
 
-del-ex1: ## Undeploy the sample Job "ex1"
+ex1-delete: ## Undeploy the sample Job "ex1"
 	@kubectl delete -f config/samples/1.yaml
 
-del-ex2: ## Undeploy the sample Job "ex2"
+ex2-delete: ## Undeploy the sample Job "ex2"
 	@kubectl delete -f config/samples/2.yaml
 
-##@ Images
-.PHONY: load-image-listener compile-image-listener load-image-exec compile-image-exec listener exec images cert-manager-install load-controller
+logs:
+	kubectl logs -f -l 'app=exec'
 
-images: listener exec
+##@ Images
+.PHONY: load-image-listener compile-image-listener load-image-exec compile-image-exec listener exec images cert-manager-install load-controller execint load-image-execint compile-image-execint
+
+images: listener exec execint
 
 listener: compile-image-listener load-image-listener
 
@@ -270,6 +296,14 @@ gen-cfg-converting:
 
 ##@ Dependencies
 
+## Helm repos
+.PHONY: deps-k8s-repos
+
+deps-k8s-repos: ## Add helm repos
+	helm repo add nats https://nats-io.github.io/k8s/helm/charts/
+	helm repo update
+
+
 ## Location to install dependencies to
 LOCALBIN ?= $(shell pwd)/bin
 $(LOCALBIN):
@@ -317,4 +351,3 @@ GOBIN=$(LOCALBIN) go install $${package} ;\
 mv "$$(echo "$(1)" | sed "s/-$(3)$$//")" $(1) ;\
 }
 endef
-
