@@ -1,4 +1,4 @@
-package runner
+package wasm
 
 import (
 	"bufio"
@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/andrescosta/goico/pkg/runtimes/wasm"
+	runtime "github.com/andrescosta/goico/pkg/runtimes/wasm"
 )
 
 type scriptType int8
@@ -26,29 +26,29 @@ const (
 )
 
 type genericModuleRunner struct {
-	mod    *wasm.GenericModule
+	mod    *runtime.GenericModule
 	types  scriptType
 	script string
 	dir    string
 	exec   string
 	pool   *sync.Pool
-	log    wasm.LogFn
+	log    runtime.LogFn
 }
 
-type errorRun struct {
+type ErrorRun struct {
 	Err    error
 	StdOut []byte
 	StdErr []byte
 }
 
-func (errorRun) Error() string {
-	return ""
+func (e ErrorRun) Error() string {
+	return e.Err.Error()
 }
 
-func newGenericModuleRunner(ctx context.Context, script string, service *EventsRunner, log wasm.LogFn) (moduleRunner, error) {
+func NewGenericModuleRunner(ctx context.Context, dir, event, script string, log runtime.LogFn) (*genericModuleRunner, error) {
 	var scriptType scriptType
 	var exec string
-	fmt.Printf("%s-%s-%s\n", script, service.dir, service.event)
+	fmt.Printf("%s-%s-%s\n", script, dir, event)
 	if strings.HasSuffix(script, "py") {
 		scriptType = ScriptPython
 		exec = "/python/python.wasm"
@@ -60,14 +60,14 @@ func newGenericModuleRunner(ctx context.Context, script string, service *EventsR
 			return nil, errors.New("")
 		}
 	}
-	wasmp := path.Join(service.dir, exec)
+	wasmp := path.Join(dir, exec)
 	fmt.Printf("Exec: %s\n", wasmp)
 	wasmf, err := os.ReadFile(wasmp)
 	if err != nil {
 		return nil, err
 	}
-	cacheDir := path.Join(service.dir, "/.cache")
-	mod, err := wasm.NewGenericModule(ctx, cacheDir, wasmf, log)
+	cacheDir := path.Join(dir, "/.cache")
+	mod, err := runtime.NewGenericModule(ctx, cacheDir, wasmf, log)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +76,7 @@ func newGenericModuleRunner(ctx context.Context, script string, service *EventsR
 		mod:    mod,
 		types:  scriptType,
 		script: script,
-		dir:    service.dir,
+		dir:    dir,
 		exec:   exec,
 		log:    log,
 		pool: &sync.Pool{
@@ -87,11 +87,11 @@ func newGenericModuleRunner(ctx context.Context, script string, service *EventsR
 	}, nil
 }
 
-func (g *genericModuleRunner) close(ctx context.Context) error {
+func (g *genericModuleRunner) Close(ctx context.Context) error {
 	return g.mod.Close(ctx)
 }
 
-func (g *genericModuleRunner) run(ctx context.Context, msg []byte) (uint64, string, error) {
+func (g *genericModuleRunner) Run(ctx context.Context, msg []byte) error {
 	buffIn := g.pool.Get().(*bytes.Buffer)
 	buffIn.Reset()
 	defer g.pool.Put(buffIn)
@@ -103,31 +103,33 @@ func (g *genericModuleRunner) run(ctx context.Context, msg []byte) (uint64, stri
 	defer g.pool.Put(buffErr)
 	_, err := buffIn.Write(msg)
 	if err != nil {
-		return 0, "", err
+		return err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	switch g.types {
 	case ScriptJavascript:
 		if err := g.runJavascript(ctx, buffIn, buffOut, buffErr); err != nil {
-			return 0, "", errorRun{
+			return ErrorRun{
 				Err:    err,
 				StdOut: buffOut.Bytes(),
 				StdErr: buffErr.Bytes(),
 			}
 		}
-		return g.processJavascriptOutput(ctx, buffOut, buffErr)
+		_, _, err := g.processJavascriptOutput(ctx, buffOut, buffErr)
+		return err
 	case ScriptPython:
 		if err := g.runPython(ctx, buffIn, buffOut, buffErr); err != nil {
-			return 0, "", errorRun{
+			return ErrorRun{
 				Err:    err,
 				StdOut: buffOut.Bytes(),
 				StdErr: buffErr.Bytes(),
 			}
 		}
-		return g.processPythonOutput(ctx, buffOut, buffErr)
+		_, _, err := g.processPythonOutput(ctx, buffOut, buffErr)
+		return err
 	}
-	return 0, "", errors.New("unsupported")
+	return errors.New("unsupported")
 }
 
 func (g *genericModuleRunner) processPythonOutput(ctx context.Context, buffOut *bytes.Buffer, buffErr *bytes.Buffer) (uint64, string, error) {
@@ -189,7 +191,7 @@ func (g *genericModuleRunner) runPython(ctx context.Context, buffIn *bytes.Buffe
 		g.exec,
 		"/prg/" + g.script,
 	}
-	e := []wasm.EnvVar{{Key: "PYTHONPATH", Value: "/usr/local/lib/jobico"}}
+	e := []runtime.EnvVar{{Key: "PYTHONPATH", Value: "/usr/local/lib/jobico"}}
 	return g.mod.Run(ctx, mounts, args, e, buffIn, buffOut, buffErr)
 }
 
@@ -202,6 +204,6 @@ func (g *genericModuleRunner) runJavascript(ctx context.Context, buffIn *bytes.B
 		"--module=/js/prg/" + g.script,
 	}
 	fmt.Printf("%v\n", args)
-	e := []wasm.EnvVar{}
+	e := []runtime.EnvVar{}
 	return g.mod.Run(ctx, mounts, args, e, buffIn, buffOut, buffErr)
 }

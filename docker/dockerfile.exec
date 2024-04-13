@@ -7,7 +7,7 @@ COPY go.sum ./
 RUN go mod download
 
 COPY ./cmd/exec/ ./cmd/exec/
-COPY ./cmd/runner/ ./cmd/runner/
+COPY ./internal/runner/ ./internal/runner/
 RUN go build -o ./bin/ -trimpath ./cmd/...
 
 FROM  debian:12-slim as exec

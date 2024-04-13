@@ -153,7 +153,8 @@ undeploy-local: manifests kustomize
 	$(KUSTOMIZE) build config/local | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
 ##@ Kind cluster
-.PHONY: kind kind-delete kind-cluster ingress dir storage nats
+
+.PHONY: kind kind-delete kind-cluster ingress wait-ingress dir storage nats obs
 
 kind: kind-cluster ingress dir storage nats cert-manager-install
 
@@ -171,16 +172,34 @@ storage:
 
 nats:
 	helm install -f ./config/nats/conf.yaml nats nats/nats
-	#@kubectl apply -f config/nats/nats-cluster.yaml
 
-.PHONY: ingress wait-ingress
+obs: wait-ingress
+	kubectl apply -f config/obs/namespace.yaml
+	kubectl apply -f config/obs/grafana.yaml
+	kubectl apply -f config/obs/loki.yaml
+	kubectl apply -f config/obs/tempo.yaml
+	kubectl apply -f config/obs/promtail.yaml
 
 ingress:
 	@kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
 
-wait-ingress:
-	@kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=90s
+# Define the maximum number of retries
+MAX_RETRIES := 4
+SLEEP_DURATION := 5
 
+# Define your target with the retry logic
+wait-ingress:
+	@echo "Waiting for Ingress..."
+	@n=0; \
+	while [ $$n -lt 3 ]; do \
+		if kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=90s; then \
+			exit 0; \
+		else \
+			sleep $(SLEEP_DURATION); \
+			n=$$(($$n+1)); \
+		fi \
+	done; \
+	exit 1;
 ##@ Local test
 .PHONY: test-op local
 
@@ -277,6 +296,14 @@ gen-cfg-converting:
 
 ##@ Dependencies
 
+## Helm repos
+.PHONY: deps-k8s-repos
+
+deps-k8s-repos: ## Add helm repos
+	helm repo add nats https://nats-io.github.io/k8s/helm/charts/
+	helm repo update
+
+
 ## Location to install dependencies to
 LOCALBIN ?= $(shell pwd)/bin
 $(LOCALBIN):
@@ -324,4 +351,3 @@ GOBIN=$(LOCALBIN) go install $${package} ;\
 mv "$$(echo "$(1)" | sed "s/-$(3)$$//")" $(1) ;\
 }
 endef
-

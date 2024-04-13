@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/andrescosta/jobicok8s/cmd/runner"
+	"github.com/andrescosta/jobicok8s/internal/runner"
 )
 
 func main() {

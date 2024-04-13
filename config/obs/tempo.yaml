@@ -1,0 +1,111 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tempo-claim0
+  namespace: obs
+spec:
+  accessModes:
+    - ReadOnlyMany
+  resources:
+    requests:
+      storage: 100Mi
+status: {}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tempo-claim1
+  namespace: obs
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Mi
+status: {}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: tempo
+  name: tempo
+  namespace: obs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tempo
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: tempo
+    spec:
+      containers:
+        - args:
+            - -config.file=/etc/tempo.yaml
+          image: grafana/tempo
+          name: tempo
+          ports:
+            - containerPort: 14268
+              protocol: TCP
+            - containerPort: 9411
+              hostPort: 9411
+              protocol: TCP
+            - containerPort: 3200
+              hostPort: 3200
+              protocol: TCP
+          resources: {}
+          volumeMounts:
+            - name: tempo-yml
+              mountPath: /etc/tempo.yaml
+              subPath: tempo-local.yaml
+      restartPolicy: Always
+      volumes:
+        - name: tempo-claim1
+          persistentVolumeClaim:
+            claimName: tempo-claim1
+        - name: tempo-yml
+          configMap:
+            name: tempo-yml
+          
+status: {}
+
+---
+apiVersion: v1
+data:
+  tempo-local.yaml: "server:\r\n  http_listen_port: 3200\r\n\r\ndistributor:\r\n  receivers:\r\n
+    \   zipkin:\r\n\r\nstorage:\r\n  trace:\r\n    backend: local\r\n    local:\r\n
+    \     path: /tmp/tempo/blocks"
+kind: ConfigMap
+metadata:
+  name: tempo-yml
+  namespace: obs
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: tempo
+  name: tempo
+  namespace: obs
+spec:
+  ports:
+    - name: "14268"
+      port: 14268
+      targetPort: 14268
+    - name: "9411"
+      port: 9411
+      targetPort: 9411
+    - name: "3200"
+      port: 3200
+      targetPort: 3200
+  selector:
+    app: tempo
+status:
+  loadBalancer: {}
+---

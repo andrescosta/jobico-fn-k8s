@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/andrescosta/jobicok8s/internal/runner/wasm"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"k8s.io/utils/env"
@@ -24,9 +25,9 @@ type EventsRunner struct {
 	dir      string
 	cacheDir string
 	wasmFile string
-	mod      moduleRunner
+	mod      ModuleRunner
 }
-type Options struct {
+type Config struct {
 	wasmFile string
 	script   string
 	event    string
@@ -35,43 +36,42 @@ type Options struct {
 }
 
 func New() (*EventsRunner, error) {
-	return NewWithOptions(nil)
+	return NewWithConfig(ReadConfigFromEnvVars())
 }
 
-func NewWithOptions(opts *Options) (*EventsRunner, error) {
-	ctx, cancel := contextForSignals()
-	o := optionsFromEnvVars()
-	o.merge(opts)
-	if err := o.validate(); err != nil {
+func NewWithConfig(cfg Config) (*EventsRunner, error) {
+	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
-	fmt.Printf("%s-%s-%s-%s-%s\n", o.script, o.wasmFile, o.dir, o.event, o.natsURL)
-	cacheDir := path.Join(o.dir, ".cache")
+	ctx, cancel := contextForSignals()
+	fmt.Printf("%s-%s-%s-%s-%s\n", cfg.script, cfg.wasmFile, cfg.dir, cfg.event, cfg.natsURL)
+	cacheDir := path.Join(cfg.dir, ".cache")
 	svc := &EventsRunner{
 		ctx:      ctx,
 		cancel:   cancel,
-		natsURL:  o.natsURL,
-		event:    o.event,
-		dir:      o.dir,
+		natsURL:  cfg.natsURL,
+		event:    cfg.event,
+		dir:      cfg.dir,
 		cacheDir: cacheDir,
 	}
-	if len(o.script) != 0 {
+	var m ModuleRunner
+	var err error
+	if len(cfg.script) != 0 {
 		fmt.Println("About to create module runner ")
-		m, err := newGenericModuleRunner(ctx, o.script, svc, log)
+		m, err = wasm.NewGenericModuleRunner(ctx, cfg.dir, cfg.event, cfg.script, log)
 		if err != nil {
 			return nil, err
 		}
-		svc.mod = m
 	}
-	if len(o.wasmFile) != 0 {
+	if len(cfg.wasmFile) != 0 {
 		fmt.Println("creating jobicolet")
-		svc.wasmFile = o.wasmFile
-		m, err := NewjobicoletModuleRunner(ctx, svc.wasmFile, svc, log)
+		svc.wasmFile = cfg.wasmFile
+		m, err = wasm.NewjobicoletModuleRunner(ctx, cfg.dir, cfg.event, svc.wasmFile, log)
 		if err != nil {
 			return nil, err
 		}
-		svc.mod = m
 	}
+	svc.mod = m
 	return svc, nil
 }
 
@@ -100,18 +100,16 @@ func (s *EventsRunner) Run() (err error) {
 					fmt.Printf("%v\n", err)
 				} else {
 					fmt.Printf("Received msg: %s\n", msg.Data())
-					res, msgr, err := s.mod.run(s.ctx, msg.Data())
+					err := s.mod.Run(s.ctx, msg.Data())
 					if err != nil {
-						er, k := err.(errorRun)
-						if k {
+						er, ok := err.(wasm.ErrorRun)
+						if ok {
 							fmt.Printf("Err: %v\n", er.Err)
 							fmt.Printf("Std out: %s\n", string(er.StdOut))
 							fmt.Printf("Std err: %s\n", string(er.StdErr))
 						} else {
 							fmt.Printf("Error executing: %v\n", err)
 						}
-					} else {
-						fmt.Printf("Result from the call: %d-%s\n", res, msgr)
 					}
 				}
 				msg.Ack()
@@ -172,10 +170,7 @@ func contextForSignals() (context.Context, context.CancelFunc) {
 	return ctx, cancel
 }
 
-func (o *Options) merge(opts *Options) {
-	if opts == nil {
-		return
-	}
+func (o *Config) Merge(opts Config) {
 	o.wasmFile = OtherIfNotNil(o.wasmFile, opts.wasmFile)
 	o.script = OtherIfNotNil(o.script, opts.script)
 	o.script = OtherIfNotNil(o.script, opts.event)
@@ -183,8 +178,8 @@ func (o *Options) merge(opts *Options) {
 	o.natsURL = OtherIfNotNil(o.natsURL, opts.natsURL)
 }
 
-func optionsFromEnvVars() Options {
-	return Options{
+func ReadConfigFromEnvVars() Config {
+	return Config{
 		wasmFile: env.GetString("wasm", ""),
 		script:   env.GetString("script", ""),
 		event:    strings.TrimSpace(env.GetString("event", "")),
@@ -193,7 +188,7 @@ func optionsFromEnvVars() Options {
 	}
 }
 
-func (o *Options) validate() error {
+func (o *Config) validate() error {
 	if IsZero(o.script) && IsZero(o.wasmFile) {
 		return errors.New("script or wasmFile must be provided")
 	}
