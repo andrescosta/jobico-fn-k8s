@@ -1,0 +1,97 @@
+##@ Kind cluster
+
+.PHONY: kind kind-delete kind-cluster 
+
+kind: kind-cluster ingress dir storage nats cert-manager-install
+
+kind-delete:
+	@kind delete cluster -n jobico
+
+kind-cluster:
+	@kind create cluster -n jobico --config ./config/cluster/kind-cluster.yaml
+
+ingress:
+	@kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+
+## Jobico
+
+dir:
+	@docker exec -it jobico-control-plane mkdir -p /data/volumes/pv1/wasm chmod 777 /data/volumes/pv1/wasm
+
+wasm:
+	@docker cp wasm/echo.wasm jobico-control-plane:/data/volumes/pv1/wasm
+
+load-image-listener: 
+	kind load docker-image listener:v1 -n jobico
+
+load-controller: 
+	kind load docker-image controller:latest -n jobico
+
+load-image-exec:
+	kind load docker-image exec:v1 -n jobico
+
+##@ Local certs
+.PHONY: gen-certs new-certs 
+
+new-certs: gen-certs gen-cfg-webhook
+
+gen-certs:
+	@export CAROOT=$(CERTSDIR);mkcert -cert-file=$(CERTSDIR)/tls.crt -key-file=$(CERTSDIR)/tls.key host.docker.internal 172.17.0.1
+
+gen-ca:
+	@mkdir -p $(CERTSDIR)
+	@export CAROOT=$(CERTSDIR); mkcert -install
+
+##@ Webhook local configs
+.PHONY: gen-cfg-webhook gen-cfg-validating gen-cfg-mutating gen-cfg-converting
+
+gen-cfg-webhook: gen-cfg-validating gen-cfg-mutating gen-cfg-converting
+
+gen-cfg-validating:
+	@key_base64=$$(cat certs/rootCA.pem | base64 -w 0);\
+	sed "s|<key>|$$key_base64|g" config/local/webhook_validating.yaml.tmpl > config/local/webhook_validating.yaml
+
+gen-cfg-mutating:
+	@key_base64=$$(cat certs/rootCA.pem | base64 -w 0);\
+	sed "s|<key>|$$key_base64|g" config/local/webhook_mutating.yaml.tmpl > config/local/webhook_mutating.yaml
+
+gen-cfg-converting:
+	@key_base64=$$(cat certs/rootCA.pem | base64 -w 0);\
+	sed "s|<key>|$$key_base64|g" config/local/webhook_conversion.yaml.tmpl > config/local/webhook_conversion.yaml
+
+
+##@ Local Certificates for Webhooks Jobico
+
+.PHONY: gen-cfg-webhook gen-cfg-validating gen-cfg-mutating gen-cfg-converting
+
+gen-cfg-webhook: gen-cfg-validating gen-cfg-mutating gen-cfg-converting
+
+gen-cfg-validating:
+	@key_base64=$$(cat certs/rootCA.pem | base64 -w 0);\
+	sed "s|<key>|$$key_base64|g" config/local/webhook_validating.yaml.tmpl > config/local/webhook_validating.yaml
+
+gen-cfg-mutating:
+	@key_base64=$$(cat certs/rootCA.pem | base64 -w 0);\
+	sed "s|<key>|$$key_base64|g" config/local/webhook_mutating.yaml.tmpl > config/local/webhook_mutating.yaml
+
+gen-cfg-converting:
+	@key_base64=$$(cat certs/rootCA.pem | base64 -w 0);\
+	sed "s|<key>|$$key_base64|g" config/local/webhook_conversion.yaml.tmpl > config/local/webhook_conversion.yaml
+
+# Define the maximum number of retries
+MAX_RETRIES := 4
+SLEEP_DURATION := 5
+
+# Define your target with the retry logic
+wait-ingress:
+	@echo "Waiting for Ingress..."
+	@n=0; \
+	while [ $$n -lt 3 ]; do \
+		if kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=90s; then \
+			exit 0; \
+		else \
+			sleep $(SLEEP_DURATION); \
+			n=$$(($$n+1)); \
+		fi \
+	done; \
+	exit 1;

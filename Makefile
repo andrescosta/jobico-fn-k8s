@@ -1,5 +1,4 @@
-
-IMG ?= controller:latest
+IMG ?= reg.jobico.org/controller:latest
 ENVTEST_K8S_VERSION = 1.29.0
 CERTSDIR=./certs
 
@@ -18,17 +17,6 @@ SHELL = /usr/bin/env bash -o pipefail
 all: build
 
 ##@ General
-
-# The help target prints out all targets with their descriptions organized
-# beneath their categories. The categories are represented by '##@' and the
-# target descriptions by '##'. The awk command is responsible for reading the
-# entire set of makefiles included in this invocation, looking for lines of the
-# file as xyz: ## something, and then pretty-format the target and help. Then,
-# if there's a line with ##@ something, that gets pretty-printed as a category.
-# More info on the usage of ANSI control characters for terminal formatting:
-# https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_parameters
-# More info on the awk command:
-# http://linuxcommand.org/lc3_adv_awk.php
 
 .PHONY: help
 help: ## Display this help.
@@ -133,9 +121,18 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: deploy
-deploy: manifests kustomize docker-build  load-controller ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+deploy: manifests kustomize secret cert-manager-install docker-build  ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
+
+.PHONY: deploy-manifests
+deploy-manifests: manifests secret kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
+
+.PHONY: secret
+secret:
+	-kubectl create secret docker-registry reg-cred-secret -nj-system --docker-server=reg.jobico.org --docker-username=myuser --docker-password=mypasswd
 
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
@@ -152,20 +149,8 @@ deploy-local: manifests kustomize
 undeploy-local: manifests kustomize 
 	$(KUSTOMIZE) build config/local | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
-##@ Kind cluster
-
-.PHONY: kind kind-delete kind-cluster ingress wait-ingress dir storage nats obs
-
-kind: kind-cluster ingress dir storage nats cert-manager-install
-
-kind-delete:
-	@kind delete cluster -n jobico
-
-kind-cluster:
-	@kind create cluster -n jobico --config ./config/cluster/kind-cluster.yaml
-
-dir:
-	@docker exec -it jobico-control-plane mkdir -p /data/volumes/pv1/wasm chmod 777 /data/volumes/pv1/wasm
+## Helpers
+.PHONY: storage nats obs ingress
 
 storage:
 	@kubectl apply -f config/storage/storage.yaml
@@ -173,33 +158,13 @@ storage:
 nats:
 	helm install -f ./config/nats/conf.yaml nats nats/nats
 
-obs: wait-ingress
+obs: 
 	kubectl apply -f config/obs/namespace.yaml
 	kubectl apply -f config/obs/grafana.yaml
 	kubectl apply -f config/obs/loki.yaml
 	kubectl apply -f config/obs/tempo.yaml
 	kubectl apply -f config/obs/promtail.yaml
 
-ingress:
-	@kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
-
-# Define the maximum number of retries
-MAX_RETRIES := 4
-SLEEP_DURATION := 5
-
-# Define your target with the retry logic
-wait-ingress:
-	@echo "Waiting for Ingress..."
-	@n=0; \
-	while [ $$n -lt 3 ]; do \
-		if kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=90s; then \
-			exit 0; \
-		else \
-			sleep $(SLEEP_DURATION); \
-			n=$$(($$n+1)); \
-		fi \
-	done; \
-	exit 1;
 ##@ Local test
 .PHONY: test-op local
 
@@ -217,8 +182,6 @@ op: install images
 
 echo: wasm ## Copy the echo wasm files to the cluster
 
-wasm:
-	@docker cp wasm/echo.wasm jobico-control-plane:/data/volumes/pv1/wasm
 
 ex1: ## Deploy the sample Job "ex1"
 	@kubectl apply -f config/samples/1.yaml
@@ -236,63 +199,31 @@ logs:
 	kubectl logs -f -l 'app=exec'
 
 ##@ Images
-.PHONY: load-image-listener compile-image-listener load-image-exec compile-image-exec listener exec images cert-manager-install load-controller execint load-image-execint compile-image-execint
+.PHONY: compile-image-listener compile-image-exec listener exec images  
 
-images: listener exec execint
+images: listener exec
 
-listener: compile-image-listener load-image-listener
+listener: compile-image-listener push-image-listener
 
 compile-image-listener: 
-	 docker build -t listener:v1 -f ./docker/dockerfile.listener .
+	$(CONTAINER_TOOL) build -t listener:v1 -f ./docker/dockerfile.listener . 
 
-load-image-listener: 
-	kind load docker-image listener:v1 -n jobico
+push-image-listener: tag-image-listener
+	$(CONTAINER_TOOL) push reg.jobico.org/listener:v1
 
-load-controller: 
-	kind load docker-image controller:latest -n jobico
+tag-image-listener:
+	$(CONTAINER_TOOL) tag listener:v1 reg.jobico.org/listener:v1
 
-exec: compile-image-exec load-image-exec
+exec: compile-image-exec push-image-exec
 
-compile-image-exec: 
-	 docker build -t exec:v1 -f ./docker/dockerfile.exec .
+compile-image-exec:  
+	$(CONTAINER_TOOL) build -t exec:v1 -f ./docker/dockerfile.exec .
 
-load-image-exec:
-	kind load docker-image exec:v1 -n jobico
+push-image-exec: tag-image-exec
+	$(CONTAINER_TOOL) push reg.jobico.org/exec:v1
 
-##@ Cert manager
-.PHONY: cert-manager-install
-
-cert-manager-install:
-	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.4/cert-manager.yaml
-
-##@ Local certs
-.PHONY: gen-certs new-certs 
-
-new-certs: gen-certs gen-cfg-webhook
-
-gen-certs:
-	@export CAROOT=$(CERTSDIR);mkcert -cert-file=$(CERTSDIR)/tls.crt -key-file=$(CERTSDIR)/tls.key host.docker.internal 172.17.0.1
-
-gen-ca:
-	@mkdir -p $(CERTSDIR)
-	@export CAROOT=$(CERTSDIR); mkcert -install
-
-##@ Webhook local configs
-.PHONY: gen-cfg-webhook gen-cfg-validating gen-cfg-mutating gen-cfg-converting
-
-gen-cfg-webhook: gen-cfg-validating gen-cfg-mutating gen-cfg-converting
-
-gen-cfg-validating:
-	@key_base64=$$(cat certs/rootCA.pem | base64 -w 0);\
-	sed "s|<key>|$$key_base64|g" config/local/webhook_validating.yaml.tmpl > config/local/webhook_validating.yaml
-
-gen-cfg-mutating:
-	@key_base64=$$(cat certs/rootCA.pem | base64 -w 0);\
-	sed "s|<key>|$$key_base64|g" config/local/webhook_mutating.yaml.tmpl > config/local/webhook_mutating.yaml
-
-gen-cfg-converting:
-	@key_base64=$$(cat certs/rootCA.pem | base64 -w 0);\
-	sed "s|<key>|$$key_base64|g" config/local/webhook_conversion.yaml.tmpl > config/local/webhook_conversion.yaml
+tag-image-exec:
+	$(CONTAINER_TOOL) tag exec:v1 reg.jobico.org/exec:v1
 
 ##@ Dependencies
 
@@ -342,6 +273,10 @@ golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/cmd/golangci-lint,${GOLANGCI_LINT_VERSION})
 
+.PHONY: cert-manager-install
+cert-manager-install:
+	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.4/cert-manager.yaml
+
 define go-install-tool
 @[ -f $(1) ] || { \
 set -e; \
@@ -351,3 +286,11 @@ GOBIN=$(LOCALBIN) go install $${package} ;\
 mv "$$(echo "$(1)" | sed "s/-$(3)$$//")" $(1) ;\
 }
 endef
+
+.PHONY: logs delete
+logs-op:
+	kubectl logs -nj-system -lcontrol-plane=controller-manager
+delete-op:
+	kubectl delete pods -nj-system -lcontrol-plane=controller-manager
+delete-pods-test:
+	kubectl delete pods -levent=ev1

@@ -20,14 +20,6 @@ spec:
   storageClassName: local-storage
   local:
     path: /data/volumes/pv1
-  nodeAffinity:
-    required:
-      nodeSelectorTerms:
-      - matchExpressions:
-        - key: kubernetes.io/hostname
-          operator: In
-          values:
-          - jobico-control-plane
 ---
 
 kind: PersistentVolumeClaim
