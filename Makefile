@@ -30,7 +30,7 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
-	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+	$(CONTROLLER_GEN) object:headerFile="hacks/boilerplate.go.txt" paths="./..."
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -121,12 +121,12 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: deploy
-deploy: manifests kustomize secret cert-manager-install docker-build  ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+deploy: install kustomize deploy-manifests secret cert-manager-install docker-build docker-push  ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
 
 .PHONY: deploy-manifests
-deploy-manifests: manifests secret kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+deploy-manifests: manifests ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
 
@@ -150,7 +150,7 @@ undeploy-local: manifests kustomize
 	$(KUSTOMIZE) build config/local | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
 ## Helpers
-.PHONY: storage nats obs ingress
+.PHONY: storage nats obs 
 
 storage:
 	@kubectl apply -f config/storage/storage.yaml
@@ -294,3 +294,10 @@ delete-op:
 	kubectl delete pods -nj-system -lcontrol-plane=controller-manager
 delete-pods-test:
 	kubectl delete pods -levent=ev1
+dir:
+	@kubectl exec wasm-st -- mkdir -p /mnt/exec/wasm chmod 777 /mnt/exec/wasm
+
+wasm:
+	@kubectl cp wasm/echo.wasm wasm-st:/mnt/exec/wasm
+
+

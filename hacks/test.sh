@@ -1,4 +1,4 @@
-curl http://listener/listener/$1 -d '{
+curl http://listener.jobico.org/listener/$1 -d '{
     "data": [
        {
             "firstName": "Andres",

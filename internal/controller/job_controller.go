@@ -323,15 +323,15 @@ func (r *JobReconciler) ingressDefinition(i ids, jobdef jobicov1.Job, e jobicov1
 			Name:      i.Ingress,
 			Namespace: jobdef.Namespace,
 			Annotations: map[string]string{
-				"nginx.ingress.kubernetes.io/ssl-redirect": "true",
+			//	"nginx.ingress.kubernetes.io/ssl-redirect": "true",
 				"event": e.Name,
 			},
 		},
 		Spec: net.IngressSpec{
-			IngressClassName: ref.Of("nginx"),
+			//IngressClassName: ref.Of("nginx"),
 			Rules: []net.IngressRule{
 				{
-					Host: "listener",
+					Host: "listener.jobico.org",
 					IngressRuleValue: net.IngressRuleValue{
 						HTTP: &net.HTTPIngressRuleValue{
 							Paths: []net.HTTPIngressPath{
@@ -370,7 +370,7 @@ func (r *JobReconciler) serviceDefinition(serviceName string, jobdef jobicov1.Jo
 		Spec: core.ServiceSpec{
 			Selector: map[string]string{"app": "listener", "event": e.Name},
 			Ports:    []core.ServicePort{{Port: 8080, TargetPort: intstr.FromInt(8080)}},
-			Type:     core.ServiceTypeClusterIP,
+            Type:     core.ServiceTypeLoadBalancer,
 		},
 	}
 	if err := ctrl.SetControllerReference(&jobdef, &service, r.Scheme); err != nil {

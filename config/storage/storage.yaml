@@ -1,27 +1,3 @@
-kind: StorageClass
-apiVersion: storage.k8s.io/v1
-metadata:
-  name: local-storage
-provisioner: kubernetes.io/no-provisioner
-volumeBindingMode: WaitForFirstConsumer
-
----
-
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: test-local-pv
-spec:
-  capacity:
-    storage: 10Gi
-  accessModes:
-  - ReadWriteOnce
-  persistentVolumeReclaimPolicy: Retain
-  storageClassName: local-storage
-  local:
-    path: /data/volumes/pv1
----
-
 kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
@@ -29,10 +5,21 @@ metadata:
 spec:
   accessModes:
   - ReadWriteOnce
-  storageClassName: local-storage
+  storageClassName: nfs-csi
   resources:
     requests:
       storage: 10Gi
-
 ---
+
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: queue-data
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: nfs-csi
+  resources:
+    requests:
+      storage: 10Gi
 
