@@ -139,7 +139,7 @@ undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.
 	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: deploy-all
-deploy-all: deploy images nats storage
+deploy-all: deploy images nats storage fs-pod
 
 .PHONY: deploy-local
 deploy-local: manifests kustomize 
@@ -300,10 +300,8 @@ fs-pod:
 	-kubectl apply -f config/storage/wasm-st.yaml
 wait-fs-pod:
 	./hacks/wait-pod.sh wasm-st
-
 dir: fs-pod wait-fs-pod
 	-@kubectl exec wasm-st -- mkdir -p /mnt/exec/wasm chmod 777 /mnt/exec/wasm
-
 wasm:
 	-@kubectl cp wasm/echo.wasm wasm-st:/mnt/exec/wasm
 
