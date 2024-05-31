@@ -7,7 +7,7 @@
 *.dll
 *.so
 *.dylib
-
+*.swp
 /bin
 /certs
 /backup_certs

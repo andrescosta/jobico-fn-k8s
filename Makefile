@@ -121,7 +121,7 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: deploy
-deploy: install kustomize deploy-manifests secret cert-manager-install docker-build docker-push  ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+deploy: install kustomize deploy-manifests secret docker-build docker-push  ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
 
@@ -139,7 +139,7 @@ undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.
 	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: deploy-all
-deploy-all: deploy images
+deploy-all: deploy images nats storage
 
 .PHONY: deploy-local
 deploy-local: manifests kustomize 
@@ -155,7 +155,7 @@ undeploy-local: manifests kustomize
 storage:
 	@kubectl apply -f config/storage/storage.yaml
 
-nats:
+nats: deps-k8s-repos
 	helm install -f ./config/nats/conf.yaml nats nats/nats
 
 obs: 
@@ -183,7 +183,7 @@ op: install images
 echo: wasm ## Copy the echo wasm files to the cluster
 
 
-ex1: ## Deploy the sample Job "ex1"
+ex1: dir wasm ## Deploy the sample Job "ex1"
 	@kubectl apply -f config/samples/1.yaml
 
 ex2: ## Deploy the sample Job "ex2"
@@ -252,6 +252,8 @@ KUSTOMIZE_VERSION ?= v5.3.0
 CONTROLLER_TOOLS_VERSION ?= v0.14.0
 ENVTEST_VERSION ?= latest
 GOLANGCI_LINT_VERSION ?= v1.54.2
+.PHONY: deps
+deps: kustomize controller-gen envtest golangci-lint cert-manager-install
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -294,10 +296,15 @@ delete-op:
 	kubectl delete pods -nj-system -lcontrol-plane=controller-manager
 delete-pods-test:
 	kubectl delete pods -levent=ev1
-dir:
-	@kubectl exec wasm-st -- mkdir -p /mnt/exec/wasm chmod 777 /mnt/exec/wasm
+fs-pod:
+	-kubectl apply -f config/storage/wasm-st.yaml
+wait-fs-pod:
+	./hacks/wait-pod.sh wasm-st
+
+dir: fs-pod wait-fs-pod
+	-@kubectl exec wasm-st -- mkdir -p /mnt/exec/wasm chmod 777 /mnt/exec/wasm
 
 wasm:
-	@kubectl cp wasm/echo.wasm wasm-st:/mnt/exec/wasm
+	-@kubectl cp wasm/echo.wasm wasm-st:/mnt/exec/wasm
 
 
