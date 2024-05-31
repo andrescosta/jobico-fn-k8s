@@ -36,6 +36,8 @@ spec:
       labels:
         control-plane: controller-manager
     spec:
+      imagePullSecrets:
+        - name: reg-cred-secret 
       # TODO(user): Uncomment the following code to configure the nodeAffinity expression
       # according to the platforms which are supported by your solution.
       # It is considered best practice to support multiple architectures. You can
@@ -70,8 +72,8 @@ spec:
         - /manager
         args:
         - --leader-elect
-        image: controller:latest
-        imagePullPolicy: Never
+        image: reg.jobico.org/controller:latest
+        #imagePullPolicy: Never
         name: manager
         securityContext:
           allowPrivilegeEscalation: false

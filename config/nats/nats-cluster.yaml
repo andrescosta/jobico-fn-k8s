@@ -15,7 +15,6 @@ spec:
       containers:
       - name: queue
         image: docker.io/nats:latest
-#        imagePullPolicy: Never
         args: ["--debug", "--http_port=8222", "--js"]
         ports:
           - name: "p8222"
