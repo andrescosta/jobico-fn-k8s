@@ -1,4 +1,4 @@
-curl http://listener/listener/ev2 -d '{
+curl http://listener.jobico.org/listener/ev2 -d '{
     "data": [
        {
             "firstName": "Andres-ev2",

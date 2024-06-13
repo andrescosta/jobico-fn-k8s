@@ -132,7 +132,7 @@ deploy-manifests: manifests ## Deploy controller to the K8s cluster specified in
 
 .PHONY: secret
 secret:
-	-kubectl create secret docker-registry reg-cred-secret -nj-system --docker-server=reg.jobico.org --docker-username=myuser --docker-password=mypasswd
+	-kubectl create secret docker-registry reg-cred-secret -nj-system --docker-server=reg.jobico.org --docker-username=jobico --docker-password=jobico123
 
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
