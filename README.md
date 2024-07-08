@@ -11,7 +11,7 @@ This project delves into integrating Jobico with Kubernetes. Jobico is a platfor
 
 ![Processor](img/processor.jpg)
 
-## Job definition
+## CRD definition
 
 ```yaml
 apiVersion: jobico.coeux.dev/v1
@@ -40,7 +40,7 @@ spec:
       schema:
         key: schema-ev1
 ```
-## JSON Schema definition
+## JSON schema ConfigMap
 
 ```yaml
 apiVersion: v1
