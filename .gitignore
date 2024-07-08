@@ -8,6 +8,7 @@
 *.so
 *.dylib
 *.swp
+*.bkp
 /bin
 /certs
 /backup_certs
