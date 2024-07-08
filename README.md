@@ -79,10 +79,39 @@ data:
 
 ## Getting Started
 
+### Using Jobico-cloud distribution
+```bash
+# 1- Creates a Kubernetes cluster with 2 nodes
+$ git clone https://github.com/andrescosta/jobico-cloud.git
+$ ./jobico-cloud/cluster.sh new
 
+# 2- Compiles and deploys the Kubernetes Operator.
+$ ./jobico-cloud/post/jobicok8s/main.sh .
+
+# 3- Sends a simple event for processing
+$ ./jobicok8s/hacks/test.sh
+```
+### Using Kind
+```bash
+# 1- Clone the project
+$ git clone https://github.com/andrescosta/jobicok8s.git
+$ cd jobicok8s 
+
+# 2- Creates a Kubernetes cluster
+$ make -f Makefile.kind kind
+
+# 3- Compiles and deploys the Kubernetes Operator.
+$ make deploy-all
+
+# 4- Sends a simple event for processing
+$ hacks/test.sh
+```
 ### Prerequisites
-- go version v1.21.0+
-- docker version 17.03+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
-
+- Go version v1.21.0+
+- Docker version 17.03+.
+- [GNU Make](https://www.gnu.org/software/make/) 
+- SSH (only for Jobico-cloud)
+- OpenSSL (only for Jobico-cloud)
+- [Cloud-init](https://cloud-init.io/) (only for Jobico-cloud)
+- [KVM](https://ubuntu.com/blog/kvm-hyphervisor) (only for Jobico-cloud)
+- [Helm](https://helm.sh/) (only for Jobico-cloud)
