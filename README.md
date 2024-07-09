@@ -83,13 +83,21 @@ data:
 ```bash
 # 1- Creates a Kubernetes cluster with 2 nodes
 $ git clone https://github.com/andrescosta/jobico-cloud.git
-$ ./jobico-cloud/cluster.sh new
+$ cd jobico-cloud
+$ ./cluster.sh new
 
 # 2- Compiles and deploys the Kubernetes Operator.
-$ ./jobico-cloud/post/jobicok8s/main.sh .
+$ ./post/jobicok8s/main.sh .
 
-# 3- Sends a simple event for processing
-$ ./jobicok8s/hacks/test.sh
+# 3- Creates a Job which responds to ev1 events
+$ cd jobicok8s
+$ make ex1
+
+# 4- Sends a simple event for processing
+$ ./hacks/test.sh
+
+# 5- Checks the logs
+$ kubectl logs -levent=ev1
 ```
 ### Using Kind
 ```bash
@@ -103,8 +111,14 @@ $ make -f Makefile.kind kind
 # 3- Compiles and deploys the Kubernetes Operator.
 $ make deploy-all
 
-# 4- Sends a simple event for processing
+# 4- Creates a Job which responds to ev1 events
+$ make ex1
+
+# 5- Sends a simple event for processing
 $ hacks/test.sh
+
+# 6- Checks the logs
+$ kubectl logs -levent=ev1
 ```
 ### Prerequisites
 - Go version v1.21.0+
