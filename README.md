@@ -54,10 +54,10 @@ spec:
 
 - **spec**:
   - **events**: Defines a list of events associated with the job.
-    - **name**: Specifies a descriptive name for the event within the job, which will be used as part of the URI to call the REST interface. Replace `[Descriptive name for the event (used in URI, max 10 chars, alphanumeric)]` with a name that adheres to the constraints (no spaces, alphanumeric characters only, max 10 characters).
-    - **wasm**: Specifies the name of the WebAssembly (Wasm) file including its extension, which will execute the logic for this event. Replace `[Name of the WebAssembly (Wasm) file including its extension]` with the actual filename of the Wasm file.
+    - **name**: Specifies a descriptive name for the event within the job, which will be used as part of the URI to call the REST interface. Replace `[Descriptive name ...]` with a name that adheres to the constraints (no spaces, alphanumeric characters only, max 10 characters).
+    - **wasm**: Specifies the name of the WebAssembly (Wasm) file including its extension, which will execute the logic for this event. Replace `[Name of the WebAssembly ...]` with the actual filename of the Wasm file.
     - **schema**: Specifies the location of the JSON schema definition used to validate incoming events.
-      - **key**: Refers to the key within a ConfigMap where the JSON schema for this event is defined. Replace `[Key in ConfigMap containing JSON schema for event validation]` with the actual key name that holds the JSON schema definition.
+      - **key**: Refers to the key within a ConfigMap where the JSON schema for this event is defined. Replace `[Key in ConfigMap ...]` with the actual key name that holds the JSON schema definition.
 
 ### ConfigMap for JSON Schema Definition:
 
@@ -138,8 +138,6 @@ data:
   - `metadata: name: schema-ev1` provides a unique name (`schema-ev1`) for the ConfigMap resource containing the schema definition.
   - `data: schema-ev1.json: |` defines the filename (`schema-ev1.json`) and contains the actual JSON schema definition within the ConfigMap.
     - The JSON schema (`{ ... }`) defines an object type with properties like `firstName`, `lastName`, and `age`, with specific data types (`string`, `integer`) and validation rules (`required` fields).
-
-This structure provides a detailed overview of defining jobs and associating JSON schemas in JobicoK8S using custom resources, WebAssembly execution, and schema validation. Adjust these examples and descriptions as needed to fit your specific project requirements.
 
 ## Getting Started
 
