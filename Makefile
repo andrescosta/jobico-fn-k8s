@@ -149,6 +149,10 @@ deploy-local: manifests kustomize
 undeploy-local: manifests kustomize 
 	$(KUSTOMIZE) build config/local | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
+.PHONY: docker-login
+docker-login:
+	docker login --username jobico --password jobico123 https://reg.jobico.org
+
 ## Helpers
 .PHONY: storage nats obs 
 
