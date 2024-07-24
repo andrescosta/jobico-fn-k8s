@@ -132,7 +132,7 @@ deploy-manifests: manifests ## Deploy controller to the K8s cluster specified in
 
 .PHONY: secret
 secret:
-	-kubectl create secret docker-registry reg-cred-secret -nj-system --docker-server=reg.jobico.org --docker-username=myuser --docker-password=mypasswd
+	kubectl get secret reg-cred-secret -oyaml --namespace=default | grep -v '^\s*namespace:\s' | kubectl apply -nj-system -f -
 
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
@@ -148,6 +148,10 @@ deploy-local: manifests kustomize
 .PHONY: undeploy-local
 undeploy-local: manifests kustomize 
 	$(KUSTOMIZE) build config/local | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+
+.PHONY: docker-login
+docker-login:
+	docker login --username jobico --password jobico123 https://reg.jobico.org
 
 ## Helpers
 .PHONY: storage nats obs 
