@@ -188,16 +188,16 @@ echo: wasm ## Copy the echo wasm files to the cluster
 
 
 ex1: dir wasm ## Deploy the sample Job "ex1"
-	@kubectl apply -f config/samples/1.yaml
+	@kubectl apply -f config/examples/1.yaml
 
 ex2: ## Deploy the sample Job "ex2"
-	@kubectl apply -f config/samples/2.yaml
+	@kubectl apply -f config/examples/2.yaml
 
 ex1-delete: ## Undeploy the sample Job "ex1"
-	@kubectl delete -f config/samples/1.yaml
+	@kubectl delete -f config/examples/1.yaml
 
 ex2-delete: ## Undeploy the sample Job "ex2"
-	@kubectl delete -f config/samples/2.yaml
+	@kubectl delete -f config/examples/2.yaml
 
 logs:
 	kubectl logs -f -l 'app=exec'

@@ -60,24 +60,6 @@ gen-cfg-converting:
 	sed "s|<key>|$$key_base64|g" config/local/webhook_conversion.yaml.tmpl > config/local/webhook_conversion.yaml
 
 
-##@ Local Certificates for Webhooks Jobico
-
-.PHONY: gen-cfg-webhook gen-cfg-validating gen-cfg-mutating gen-cfg-converting
-
-gen-cfg-webhook: gen-cfg-validating gen-cfg-mutating gen-cfg-converting
-
-gen-cfg-validating:
-	@key_base64=$$(cat certs/rootCA.pem | base64 -w 0);\
-	sed "s|<key>|$$key_base64|g" config/local/webhook_validating.yaml.tmpl > config/local/webhook_validating.yaml
-
-gen-cfg-mutating:
-	@key_base64=$$(cat certs/rootCA.pem | base64 -w 0);\
-	sed "s|<key>|$$key_base64|g" config/local/webhook_mutating.yaml.tmpl > config/local/webhook_mutating.yaml
-
-gen-cfg-converting:
-	@key_base64=$$(cat certs/rootCA.pem | base64 -w 0);\
-	sed "s|<key>|$$key_base64|g" config/local/webhook_conversion.yaml.tmpl > config/local/webhook_conversion.yaml
-
 # Define the maximum number of retries
 MAX_RETRIES := 4
 SLEEP_DURATION := 5
